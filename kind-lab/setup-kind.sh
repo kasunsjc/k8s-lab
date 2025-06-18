@@ -1,25 +1,27 @@
 #!/bin/bash
 set -e
 
+# 🔶 🚀 Multi-Node Kind Lab Setup Script 🚀 🔶
+#
 # Script to set up a multi-node Kind cluster
 # Usage: ./setup-kind.sh [CLUSTER_NAME]
 # If CLUSTER_NAME is not provided, "kind-multi-node" will be used as default
 
-# Detect OS
+# 🔍 Detect OS
 OS="$(uname -s)"
 case "${OS}" in
-    Linux*)     MACHINE=Linux;;
-    Darwin*)    MACHINE=Mac;;
+    Linux*)     MACHINE=Linux;;   # 🐧 Linux
+    Darwin*)    MACHINE=Mac;;     # 🍎 macOS
     *)          MACHINE="UNKNOWN:${OS}"
 esac
 
-echo "Detected OS: $MACHINE"
+echo "🖥️  Detected OS: $MACHINE"
 
-# Set cluster name (default or from command line argument)
+# 🏷️ Set cluster name (default or from command line argument)
 CLUSTER_NAME=${1:-kind-multi-node}
-echo "Setting up a multi-node Kind cluster with name: $CLUSTER_NAME"
+echo "🚀 Setting up a multi-node Kind cluster with name: $CLUSTER_NAME"
 
-# Function to install dependencies based on OS
+# 📦 Function to install dependencies based on OS
 install_dependencies() {
     # Check if Kind is installed
     if ! command -v kind &> /dev/null; then
@@ -91,8 +93,8 @@ install_dependencies() {
 # Install dependencies
 install_dependencies
 
-# Create Kind cluster configuration
-echo "Creating Kind cluster configuration..."
+# 📝 Create Kind cluster configuration
+echo "📝 Creating Kind cluster configuration..."
 
 cat > kind-config.yaml << EOF
 kind: Cluster
@@ -117,33 +119,33 @@ nodes:
 - role: worker
 EOF
 
-# Delete any existing Kind cluster with the same name
-echo "Deleting any existing Kind clusters with the name '$CLUSTER_NAME'..."
+# 🗑️ Delete any existing Kind cluster with the same name
+echo "🗑️ Deleting any existing Kind clusters with the name '$CLUSTER_NAME'..."
 kind delete cluster --name ${CLUSTER_NAME} || true
 
-# Create a new Kind cluster
-echo "Creating a new Kind cluster with 3 nodes (1 control-plane, 2 workers) and name '$CLUSTER_NAME'..."
+# 🚀 Create a new Kind cluster
+echo "🚀 Creating a new Kind cluster with 3 nodes (1 control-plane, 2 workers) and name '$CLUSTER_NAME'..."
 kind create cluster --config=kind-config.yaml
 
-# Verify the cluster status
-echo "Verifying cluster status..."
+# ✅ Verify the cluster status
+echo "✅ Verifying cluster status..."
 kubectl get nodes
 
-# Install Metrics Server
-echo "Installing Metrics Server..."
+# 📈 Install Metrics Server
+echo "📈 Installing Metrics Server..."
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
-# Install Ingress Controller (NGINX)
-echo "Installing NGINX Ingress Controller..."
+# 🌐 Install Ingress Controller (NGINX)
+echo "🌐 Installing NGINX Ingress Controller..."
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 
-# Print cluster info
-echo "Cluster Information:"
+# ℹ️ Print cluster info
+echo "ℹ️ Cluster Information:"
 kubectl cluster-info
 
-echo "Multi-node Kind cluster setup complete!"
-echo "Cluster Name: $CLUSTER_NAME"
-echo "To access the cluster with kubectl, run: kubectl get nodes"
-echo "NGINX Ingress Controller is being deployed. It may take a minute to be ready."
-echo "You can check its status with: kubectl get pods -n ingress-nginx"
-echo "To delete this cluster when no longer needed, run: kind delete cluster --name $CLUSTER_NAME"
+echo "🎉 Multi-node Kind cluster setup complete! 🎉"
+echo "🏷️  Cluster Name: $CLUSTER_NAME"
+echo "🔍 To access the cluster with kubectl, run: kubectl get nodes"
+echo "⏱️  NGINX Ingress Controller is being deployed. It may take a minute to be ready."
+echo "📊 You can check its status with: kubectl get pods -n ingress-nginx"
+echo "🗑️  To delete this cluster when no longer needed, run: kind delete cluster --name $CLUSTER_NAME"

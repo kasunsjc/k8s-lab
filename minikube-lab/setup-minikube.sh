@@ -1,25 +1,27 @@
 #!/bin/bash
 set -e
 
+# 🔷 🚀 Multi-Node Minikube Lab Setup Script 🚀 🔷
+#
 # Script to set up a multi-node Minikube cluster
 # Usage: ./setup-minikube.sh [PROFILE_NAME]
 # If PROFILE_NAME is not provided, "minikube-multinode" will be used as default
 
-# Detect OS
+# 🔍 Detect OS
 OS="$(uname -s)"
 case "${OS}" in
-    Linux*)     MACHINE=Linux;;
-    Darwin*)    MACHINE=Mac;;
+    Linux*)     MACHINE=Linux;;   # 🐧 Linux
+    Darwin*)    MACHINE=Mac;;     # 🍎 macOS
     *)          MACHINE="UNKNOWN:${OS}"
 esac
 
-echo "Detected OS: $MACHINE"
+echo "🖥️  Detected OS: $MACHINE"
 
-# Set profile name (default or from command line argument)
+# 🏷️ Set profile name (default or from command line argument)
 PROFILE_NAME=${1:-minikube-multinode}
-echo "Setting up a multi-node Minikube cluster with profile: $PROFILE_NAME"
+echo "🚀 Setting up a multi-node Minikube cluster with profile: $PROFILE_NAME"
 
-# Function to install dependencies based on OS
+# 📦 Function to install dependencies based on OS
 install_dependencies() {
     # Check if Minikube is installed
     if ! command -v minikube &> /dev/null; then
@@ -89,18 +91,18 @@ install_dependencies() {
 # Install dependencies
 install_dependencies
 
-# Stop any existing Minikube cluster with the same profile
-echo "Stopping any existing Minikube cluster with profile '$PROFILE_NAME'..."
+# ⏹️ Stop any existing Minikube cluster with the same profile
+echo "⏹️ Stopping any existing Minikube cluster with profile '$PROFILE_NAME'..."
 minikube stop -p $PROFILE_NAME || true
 
-# Delete any existing Minikube cluster with the same profile
-echo "Deleting any existing Minikube cluster with profile '$PROFILE_NAME'..."
+# 🗑️ Delete any existing Minikube cluster with the same profile
+echo "🗑️ Deleting any existing Minikube cluster with profile '$PROFILE_NAME'..."
 minikube delete -p $PROFILE_NAME || true
 
-# Set the number of nodes for the cluster
-NODE_COUNT=3
+# 🔢 Set the number of nodes for the cluster
+NODE_COUNT=3  # 🖧 🖧 🖧
 
-# Determine the best driver to use
+# 🚗 Determine the best driver to use
 determine_driver() {
     # Check if we're running in a CI environment
     if [ -n "${CI}" ]; then
@@ -136,32 +138,32 @@ determine_driver() {
     echo "docker"
 }
 
-# Get the best driver
+# 🛞 Get the best driver
 DRIVER=$(determine_driver)
-echo "Using driver: $DRIVER"
+echo "🚗 Using driver: $DRIVER"
 
-# Start a new Minikube cluster with multiple nodes and specific profile
-echo "Starting a new Minikube cluster with $NODE_COUNT nodes and profile '$PROFILE_NAME'..."
+# 🚀 Start a new Minikube cluster with multiple nodes and specific profile
+echo "🚀 Starting a new Minikube cluster with $NODE_COUNT nodes and profile '$PROFILE_NAME'..."
 minikube start -p $PROFILE_NAME --nodes=$NODE_COUNT --driver=$DRIVER --kubernetes-version=stable
 
-# Verify the cluster status
-echo "Verifying cluster status..."
+# ✅ Verify the cluster status
+echo "✅ Verifying cluster status..."
 minikube status -p $PROFILE_NAME
 kubectl get nodes
 
-# Enable addons (optional)
-echo "Enabling useful addons..."
-minikube addons enable dashboard -p $PROFILE_NAME
-minikube addons enable metrics-server -p $PROFILE_NAME
-minikube addons enable ingress -p $PROFILE_NAME
+# 🧩 Enable addons (optional)
+echo "🧩 Enabling useful addons..."
+minikube addons enable dashboard -p $PROFILE_NAME      # 📊 Dashboard
+minikube addons enable metrics-server -p $PROFILE_NAME # 📈 Metrics
+minikube addons enable ingress -p $PROFILE_NAME        # 🌐 Ingress
 
-# Print cluster info
-echo "Cluster Information:"
+# ℹ️ Print cluster info
+echo "ℹ️ Cluster Information:"
 kubectl cluster-info
 
-echo "Multi-node Minikube cluster setup complete!"
-echo "Profile: $PROFILE_NAME"
-echo "To access the Kubernetes Dashboard, run: minikube dashboard -p $PROFILE_NAME"
-echo "To access the cluster with kubectl, run: kubectl get nodes"
-echo "To stop this cluster, run: minikube stop -p $PROFILE_NAME"
-echo "To delete this cluster, run: minikube delete -p $PROFILE_NAME"
+echo "🎉 Multi-node Minikube cluster setup complete! 🎉"
+echo "🏷️  Profile: $PROFILE_NAME"
+echo "📊 To access the Kubernetes Dashboard, run: minikube dashboard -p $PROFILE_NAME"
+echo "🔍 To access the cluster with kubectl, run: kubectl get nodes"
+echo "⏸️  To stop this cluster, run: minikube stop -p $PROFILE_NAME"
+echo "🗑️  To delete this cluster, run: minikube delete -p $PROFILE_NAME"
