@@ -93,7 +93,37 @@ install_dependencies() {
 # Install dependencies
 install_dependencies
 
-# 📝 Create Kind cluster configuration
+# � Check if a cluster with this name already exists
+echo "🔍 Checking if a Kind cluster named '$CLUSTER_NAME' already exists..."
+if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+    echo "✅ Found existing cluster named '$CLUSTER_NAME'!"
+    
+    # Check if the control-plane container is running
+    CONTAINER_RUNNING=$(docker ps -q --filter "name=${CLUSTER_NAME}-control-plane" --filter "status=running" | wc -l | tr -d ' ')
+    
+    if [ "$CONTAINER_RUNNING" -gt 0 ]; then
+        echo "✅ Cluster is already running! No action needed."
+        # Switch to this cluster's context
+        kubectl config use-context "kind-${CLUSTER_NAME}"
+        exit 0
+    else
+        CONTAINER_EXISTS=$(docker ps -a -q --filter "name=${CLUSTER_NAME}-control-plane" | wc -l | tr -d ' ')
+        if [ "$CONTAINER_EXISTS" -gt 0 ]; then
+            echo "🔄 Existing containers found. Attempting to start them..."
+            docker ps -a --filter "name=${CLUSTER_NAME}-" --format "{{.ID}}" | xargs docker start
+            echo "✅ Containers started successfully!"
+            # Switch to this cluster's context
+            kubectl config use-context "kind-${CLUSTER_NAME}" 
+            exit 0
+        else
+            echo "⚠️ Cluster exists but no containers found. Creating new cluster..."
+        fi
+    fi
+else
+    echo "🆕 No existing cluster found. Creating a new cluster..."
+fi
+
+# �📝 Create Kind cluster configuration
 echo "📝 Creating Kind cluster configuration..."
 
 cat > kind-config.yaml << EOF
@@ -118,10 +148,6 @@ nodes:
 - role: worker
 - role: worker
 EOF
-
-# 🗑️ Delete any existing Kind cluster with the same name
-echo "🗑️ Deleting any existing Kind clusters with the name '$CLUSTER_NAME'..."
-kind delete cluster --name ${CLUSTER_NAME} || true
 
 # 🚀 Create a new Kind cluster
 echo "🚀 Creating a new Kind cluster with 3 nodes (1 control-plane, 2 workers) and name '$CLUSTER_NAME'..."

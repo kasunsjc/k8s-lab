@@ -66,7 +66,27 @@ start_cluster() {
         fi
         
         echo -e "${YELLOW}🚀 Starting Minikube cluster: $cluster_name ${NC}"
-        ./minikube-lab/setup-minikube.sh $cluster_name
+        # Check if cluster exists first
+        if minikube profile list -o json 2>/dev/null | grep -q "\"Name\":\"$cluster_name\""; then
+            echo -e "${YELLOW}✅ Found existing cluster with profile '$cluster_name'${NC}"
+            
+            # Check status
+            STATUS=$(minikube status -p $cluster_name -o json 2>/dev/null | grep -o '\"Host\":\"[^\"]*\"' | cut -d'"' -f4 || echo "Unknown")
+            
+            if [ "$STATUS" = "Running" ]; then
+                echo -e "${GREEN}✅ Cluster is already running!${NC}"
+                minikube status -p $cluster_name
+                return 0
+            else
+                echo -e "${YELLOW}🔄 Starting existing cluster with profile '$cluster_name'...${NC}"
+                minikube start -p $cluster_name
+                echo -e "${GREEN}✅ Cluster started successfully!${NC}"
+                return 0
+            fi
+        else
+            # Let the setup script handle creating a new cluster
+            ./minikube-lab/setup-minikube.sh $cluster_name
+        fi
     
     elif [ "$env_type" = "kind" ]; then
         check_tool kind
@@ -77,6 +97,33 @@ start_cluster() {
         fi
         
         echo -e "${YELLOW}🚀 Starting Kind cluster: $cluster_name ${NC}"
+        # Check if cluster exists
+        if kind get clusters 2>/dev/null | grep -q "^${cluster_name}$"; then
+            echo -e "${YELLOW}✅ Found existing cluster named '$cluster_name'!${NC}"
+            
+            # Check if control-plane container is running
+            CONTAINER_RUNNING=$(docker ps -q --filter "name=${cluster_name}-control-plane" --filter "status=running" | wc -l | tr -d ' ')
+            
+            if [ "$CONTAINER_RUNNING" -gt 0 ]; then
+                echo -e "${GREEN}✅ Cluster is already running!${NC}"
+                kubectl config use-context "kind-${cluster_name}"
+                kubectl cluster-info --context "kind-${cluster_name}"
+                return 0
+            else
+                CONTAINER_EXISTS=$(docker ps -a -q --filter "name=${cluster_name}-control-plane" | wc -l | tr -d ' ')
+                if [ "$CONTAINER_EXISTS" -gt 0 ]; then
+                    echo -e "${YELLOW}🔄 Existing containers found. Starting them...${NC}"
+                    docker ps -a --filter "name=${cluster_name}-" --format "{{.ID}}" | xargs docker start
+                    echo -e "${GREEN}✅ Containers started! Waiting for cluster to be ready...${NC}"
+                    sleep 5  # Give the cluster a moment to initialize
+                    kubectl config use-context "kind-${cluster_name}"
+                    kubectl cluster-info --context "kind-${cluster_name}"
+                    return 0
+                fi
+            fi
+        fi
+        
+        # Let the setup script handle creation or recreation
         ./kind-lab/setup-kind.sh $cluster_name
     
     else

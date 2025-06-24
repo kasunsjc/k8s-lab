@@ -91,13 +91,26 @@ install_dependencies() {
 # Install dependencies
 install_dependencies
 
-# ⏹️ Stop any existing Minikube cluster with the same profile
-echo "⏹️ Stopping any existing Minikube cluster with profile '$PROFILE_NAME'..."
-minikube stop -p $PROFILE_NAME || true
-
-# 🗑️ Delete any existing Minikube cluster with the same profile
-echo "🗑️ Deleting any existing Minikube cluster with profile '$PROFILE_NAME'..."
-minikube delete -p $PROFILE_NAME || true
+# 🔍 Check if a cluster with this profile already exists
+echo "🔍 Checking if a Minikube cluster with profile '$PROFILE_NAME' already exists..."
+if minikube profile list -o json | grep -q "\"Name\":\"$PROFILE_NAME\""; then
+    echo "✅ Found existing cluster with profile '$PROFILE_NAME'!"
+    
+    # Check if it's running or stopped
+    STATUS=$(minikube status -p $PROFILE_NAME -o json 2>/dev/null | grep -o '\"Host\":\"[^\"]*\"' | cut -d'"' -f4)
+    
+    if [ "$STATUS" = "Running" ]; then
+        echo "✅ Cluster is already running! No action needed."
+        exit 0
+    else
+        echo "🔄 Starting existing cluster with profile '$PROFILE_NAME'..."
+        minikube start -p $PROFILE_NAME
+        echo "✅ Cluster started successfully!"
+        exit 0
+    fi
+else
+    echo "🆕 No existing cluster found. Creating a new cluster..."
+fi
 
 # 🔢 Set the number of nodes for the cluster
 NODE_COUNT=3  # 🖧 🖧 🖧
