@@ -8,6 +8,7 @@ This repository contains ready-to-use setup scripts and detailed instructions fo
 ## 🆕 New Features
 
 - 🔮 **All-in-one Management Script** - New `k8s-lab.sh` provides unified management for both types of clusters
+- 🧠 **Smart Cluster Management** - Clusters are preserved and restarted rather than recreated when possible
 - 🧩 **Advanced Demo Applications** - New demonstrations of StatefulSets, HPA, ConfigMaps and Secrets
 - 📊 **Enhanced Status Checking** - Quick overview of all clusters and their state
 - 🧹 **Cluster Cleanup** - Easy deletion and cleanup of clusters
@@ -76,6 +77,10 @@ Our new unified management script makes it easier than ever to work with both ty
 ./k8s-lab.sh cleanup kind [cluster_name]
 ```
 
+> **💡 Smart Cluster Management**: When starting a cluster, the script automatically checks if it already exists.
+> If a cluster with the same name is already running, no action is taken. If it exists but is stopped,
+> the script will start it instead of recreating it. This saves time and preserves your workloads.
+
 ### Advanced Demo Applications
 
 We now have advanced demos that showcase various Kubernetes features:
@@ -112,6 +117,7 @@ You can also navigate to either the `minikube-lab` or `kind-lab` directory and f
 - ✅ Multi-node clusters for realistic testing
 - ✅ Cross-platform support (macOS & Linux)
 - ✅ Profile/naming support for running multiple clusters
+- ✅ Smart cluster management that preserves and restarts existing clusters
 - ✅ Pre-configured with essential add-ons
 - ✅ Detailed documentation with examples
 - ✅ Advanced demos of key Kubernetes features (StatefulSets, HPA, ConfigMaps, etc.)
