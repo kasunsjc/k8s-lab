@@ -2,6 +2,14 @@
 
 This lab provides a lightning-fast, lightweight multi-node Kubernetes development environment using Kind (Kubernetes IN Docker). The smart setup script is compatible with both macOS and Linux operating systems, enabling you to spin up a complete Kubernetes cluster in seconds.
 
+## ✨ Key Features
+
+- 🔱 A specialized 3-node Kubernetes cluster (1 control-plane, 2 workers) running on Docker
+- 🧠 Smart cluster management that preserves and restarts existing clusters
+- 📈 Metrics Server for resource utilization monitoring
+- 🌐 NGINX Ingress Controller with ports 80 and 443 pre-configured and exposed to the host
+- ⚡ Ultra-fast startup and teardown for rapid development cycles
+
 ## 📋 Prerequisites
 
 ### 🍎 For macOS
@@ -37,113 +45,27 @@ This lab provides a lightning-fast, lightweight multi-node Kubernetes developmen
 
    ✨ You can create multiple clusters with different names by specifying different cluster names, perfect for testing scenarios requiring multiple isolated environments.
 
-## ✨ What This Lab Includes
+## 🧠 Smart Cluster Management
 
-- 🔱 A specialized 3-node Kubernetes cluster (1 control-plane, 2 workers) running on Docker
-- 📈 Metrics Server for resource utilization monitoring
-- 🌐 NGINX Ingress Controller with ports 80 and 443 pre-configured and exposed to the host
-- ⚡ Ultra-fast startup and teardown for rapid development cycles
+The setup script implements smart cluster management capabilities, particularly useful with Kind:
 
-## 🛠️ Using the Cluster
-
-After setup, you can interact with your cluster using the following commands. Replace `<cluster-name>` with your cluster name (default is `kind-multi-node` if you didn't specify one).
-
-```bash
-# 📋 View nodes in the cluster
-kubectl get nodes
-
-# 🔍 List all the pods in the cluster
-kubectl get pods --all-namespaces
-
-# 💻 Interact with a specific node
-docker exec -it <cluster-name>-worker bash    # Connect to first worker node
-docker exec -it <cluster-name>-worker2 bash   # Connect to second worker node
-docker exec -it <cluster-name>-control-plane bash  # Connect to control plane
-
-# 🗑️ Delete the cluster when no longer needed
-kind delete cluster --name <cluster-name>
-```
-
-## 🧪 Deploying a Test Application
-
-To verify that your cluster is working correctly, deploy this simple test application:
+- 🔍 **Cluster Detection**: The script checks if a cluster with the specified name already exists
+- 🐳 **Container State Awareness**: If the cluster exists, the script checks if its containers are running
+- 🔌 **Container Restart**: If the cluster containers are stopped, they will be restarted without recreating the cluster
+- ⚡ **Efficiency**: No need to wait for cluster recreation when you've just temporarily stopped the containers
+- 🛡️ **State Preservation**: Your workloads, configurations, and deployed applications remain intact
 
 ```bash
-# 📦 Create a test deployment
-kubectl create deployment nginx --image=nginx
+# If you run this command for an existing cluster with stopped containers
+./setup-kind.sh my-cluster
 
-# 🔌 Expose the deployment
-kubectl create service clusterip nginx --tcp=80:80
-
-# 🌐 Create an ingress resource
-cat <<EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: nginx-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-spec:
-  rules:
-  - http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: nginx
-            port:
-              number: 80
-EOF
-
-# ✅ Test the ingress (once the ingress controller is ready)
-curl http://localhost/
+# The script will detect the cluster and just restart the containers
+# This is much faster than recreating the entire cluster
 ```
 
-## 🔍 Troubleshooting
-
-If you encounter issues:
-
-1. 🐳 Ensure Docker Desktop is running with enough resources (memory, CPU)
-2. 🔄 Check the status of the ingress controller: `kubectl get pods -n ingress-nginx`
-3. 📋 View logs for troubleshooting: `kubectl logs -n ingress-nginx <ingress-controller-pod-name>`
-4. 💪 If the cluster fails to start, try increasing Docker's resource limits
-5. 🕒 Be patient with ingress controller initialization (can take a minute)
-
-## 🧰 Additional Commands
-
-```bash
-# ℹ️ View detailed cluster info
-kubectl cluster-info
-
-# 📋 View all available contexts
-kubectl config get-contexts
-
-# 🔄 Switch to the kind context if needed
-kubectl config use-context kind-kind-multi-node
-```
-
-## 🔀 Managing Multiple Clusters
-
-You can create and manage multiple Kubernetes clusters by using different cluster names for isolated development environments:
-
-```bash
-# 🚀 Create a cluster with name "dev"
-./setup-kind.sh dev
-
-# 🚀 Create another cluster with name "test" 
-./setup-kind.sh test
-
-# 📋 List all your Kind clusters
-kind get clusters
-
-# 🔄 Switch kubectl context between clusters
-kubectl config use-context kind-dev
-kubectl config use-context kind-test
-
-# 🗑️ Delete clusters when you're done with the labs
-kind delete cluster --name dev
-kind delete cluster --name test
-```
-
-> 💡 **Tip:** Kind automatically prefixes your cluster name with "kind-" when creating kubectl contexts, so make sure to use "kind-{cluster-name}" when switching contexts.
+> 💡 **Tip for Kind Users**: Since Kind doesn't have a built-in "stop" command like Minikube, you can stop the containers manually using Docker commands, and the setup script will intelligently restart them:
+> 
+> ```bash
+> # To stop Kind containers manually:
+> docker stop my-cluster-control-plane my-cluster-worker my-cluster-worker2
+> ```

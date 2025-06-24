@@ -2,6 +2,14 @@
 
 This lab provides a powerful multi-node Kubernetes development environment using Minikube. The automated setup script is compatible with both macOS and Linux operating systems, giving you a production-like Kubernetes experience on your local machine in minutes.
 
+## ✨ Key Features
+
+- 🔱 A robust 3-node Kubernetes cluster running on Docker
+- 🧠 Smart cluster management that preserves and restarts existing clusters
+- 📊 Interactive Kubernetes Dashboard for visual management
+- 📈 Metrics Server for real-time performance monitoring
+- 🌐 Ingress Controller for external service access
+
 ## 📋 Prerequisites
 
 ### 🍎 For macOS
@@ -37,9 +45,26 @@ This lab provides a powerful multi-node Kubernetes development environment using
 
    ✨ You can create multiple clusters with different profiles by specifying different profile names, allowing you to run isolated environments (e.g., dev, test, demo) simultaneously.
 
+## 🧠 Smart Cluster Management
+
+The setup script has been enhanced with smart cluster management capabilities:
+
+- 🔍 **Automatic Detection**: The script checks if a cluster with the given profile already exists
+- ⚙️ **Status Checking**: If the cluster exists, its running status is checked
+- 🔄 **Smart Restart**: If the cluster exists but is stopped, it will be started instead of recreated
+- ⏱️ **Time-Saving**: Eliminates the need to recreate clusters, preserving your workloads and configurations
+- 🛡️ **Data Preservation**: Your deployments, services, and data will remain intact
+
+```bash
+# If you run this command and the cluster exists but is stopped
+./setup-minikube.sh my-cluster
+
+# The script will detect it and just start it back up without recreating it
+# This preserves your deployments, services, and other resources
+```
+
 ## ✨ What This Lab Includes
 
-- 🔱 A robust 3-node Kubernetes cluster running on Docker
 - 📊 Interactive Kubernetes Dashboard for visual management
 - 📈 Metrics Server for real-time performance monitoring
 - 🌐 Ingress Controller for external service access
