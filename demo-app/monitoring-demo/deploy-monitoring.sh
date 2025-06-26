@@ -136,6 +136,15 @@ else
     echo -e "${YELLOW}⚠️ No custom configurations found. Skipping.${NC}"
 fi
 
+# Apply ServiceMonitors
+echo -e "${CYAN}📌 Step 5: Applying ServiceMonitors...${NC}"
+if [ -f "service-monitors.yaml" ]; then
+    kubectl apply -f service-monitors.yaml
+    echo -e "${GREEN}✅ ServiceMonitors applied${NC}"
+else
+    echo -e "${YELLOW}⚠️ No service-monitors.yaml found. Skipping.${NC}"
+fi
+
 # Wait for deployments to be ready
 echo -e "${CYAN}⏳ Waiting for deployments to be ready...${NC}"
 kubectl rollout status deployment/prometheus-prometheus -n monitoring --timeout=180s || true

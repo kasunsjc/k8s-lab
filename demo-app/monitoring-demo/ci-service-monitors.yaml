@@ -1,0 +1,46 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: prometheus-all-services-monitor
+  namespace: monitoring
+  labels:
+    # This matches any release label used by Prometheus Operator
+    app.kubernetes.io/name: kube-prometheus-stack
+spec:
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: Exists
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  endpoints:
+  - port: web
+    interval: 10s
+  - port: http
+    interval: 10s
+  - port: service
+    interval: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kube-api-server-monitor
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: kube-prometheus-stack
+spec:
+  jobLabel: component
+  selector:
+    matchLabels:
+      component: apiserver
+      provider: kubernetes
+  namespaceSelector:
+    matchNames:
+      - default
+  endpoints:
+  - port: https
+    interval: 30s
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
