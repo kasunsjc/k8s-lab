@@ -1,0 +1,107 @@
+name: Kubernetes Monitoring Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'demo-app/monitoring-demo/**'
+      - '.github/workflows/monitoring-tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'demo-app/monitoring-demo/**'
+      - '.github/workflows/monitoring-tests.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  test-kind-deployment:
+    name: Test Kind Deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      - name: Setup KinD cluster
+        uses: helm/kind-action@v1.8.0
+        with:
+          cluster_name: kind-monitoring-test
+          config: kind-lab/kind-config.yaml
+          wait: 120s
+
+      - name: Show cluster info
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+          kubectl version
+
+      - name: Deploy monitoring stack
+        working-directory: demo-app/monitoring-demo
+        run: |
+          chmod +x ./deploy-monitoring.sh
+          ./deploy-monitoring.sh kind kind-monitoring-test
+          
+      - name: Wait for deployments to be ready
+        run: |
+          echo "Waiting for Prometheus Operator deployment..."
+          kubectl -n monitoring wait --for=condition=available deployment/prometheus-kube-prometheus-operator --timeout=180s
+          
+          echo "Waiting for Prometheus deployment..."
+          kubectl -n monitoring wait --for=condition=ready pod -l app=prometheus --timeout=180s || true
+          
+          echo "Waiting for Grafana deployment..."
+          kubectl -n monitoring wait --for=condition=available deployment/prometheus-grafana --timeout=180s
+      
+      - name: List all resources in monitoring namespace
+        run: |
+          kubectl get all -n monitoring
+
+      - name: Run automated tests using test-monitoring.sh script
+        working-directory: demo-app/monitoring-demo
+        run: |
+          chmod +x ./test-monitoring.sh
+          ./test-monitoring.sh kind kind-monitoring-test
+          
+      - name: Test monitoring dashboard scripts
+        working-directory: demo-app/monitoring-demo
+        run: |
+          # Test start monitoring script
+          chmod +x ./start-monitoring.sh
+          if ./start-monitoring.sh | grep -q "Usage"; then
+            echo "✅ start-monitoring.sh script executed successfully"
+          else
+            echo "❌ start-monitoring.sh script failed to execute properly"
+            exit 1
+          fi
+          
+          # Test dashboard import (using kubectl port-forward)
+          echo "Testing dashboard import..."
+          kubectl port-forward svc/prometheus-grafana 3000:80 -n monitoring &
+          PORT_FWD_PID=$!
+          sleep 5
+          
+          IMPORT_RESULT=$(curl -s -u admin:admin -H "Content-Type: application/json" -X POST -d @test-dashboard.json http://localhost:3000/api/dashboards/db)
+          if echo "$IMPORT_RESULT" | grep -q "success"; then
+            echo "✅ Test dashboard imported successfully"
+          else
+            echo "⚠️ Could not import dashboard: $(echo $IMPORT_RESULT | grep -o '"message":"[^"]*"' || echo "Unknown error")"
+          fi
+          
+          # Clean up port forwarding
+          kill $PORT_FWD_PID || true
+
+      - name: Clean up
+        if: always()
+        run: |
+          kubectl delete namespace monitoring || true

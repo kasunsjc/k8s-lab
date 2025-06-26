@@ -1,13 +1,16 @@
 # 📊 Kubernetes Monitoring Demo
 
+[![Kubernetes Monitoring Tests](https://github.com/[YOUR_USERNAME]/Kubernetes-Lab/actions/workflows/monitoring-tests.yml/badge.svg)](https://github.com/[YOUR_USERNAME]/Kubernetes-Lab/actions/workflows/monitoring-tests.yml)
+
 This demo shows how to set up a comprehensive monitoring stack for Kubernetes using the Prometheus Operator via Helm:
 
 - 🔍 **Prometheus Operator** - Kubernetes native deployment and management of Prometheus and related monitoring components
-- 📈 **Grafana** - Visualization and dashboards with pre-configured views 
+- 📈 **Grafana** - Visualization and dashboards with pre-configured views
 - 🚨 **Alertmanager** - Handling alerts from Prometheus
 - 📡 **Node Exporter** - Hardware and OS metrics collection
 - 🔄 **kube-state-metrics** - Kubernetes object metrics collection
 - 🧩 **Custom Resources** - ServiceMonitors, PodMonitors, and PrometheusRules for easy extension
+- 🧪 **CI/CD Testing** - Automated tests and verification via GitHub Actions
 
 ## 🚀 Quick Start
 
@@ -96,7 +99,35 @@ kubectl port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 -n mo
 
 ## 🧪 Testing the Monitoring
 
-After deploying, you can generate some load to see metrics in action:
+### Automated Tests
+
+You can run automated tests to verify your monitoring stack is working correctly:
+
+```bash
+# Test the monitoring stack on Minikube
+./test-monitoring.sh minikube [profile_name]
+
+# OR test on Kind
+./test-monitoring.sh kind [cluster_name]
+```
+
+This will run a series of tests to check:
+
+1. All monitoring deployments are ready
+2. Prometheus API is accessible and finding targets
+3. Grafana API is accessible and has datasources configured
+4. AlertManager API is accessible
+5. Metrics are being collected properly
+6. Test dashboard can be imported into Grafana
+
+The test dashboard (`test-dashboard.json`) includes:
+
+- CPU usage metrics for the monitoring namespace
+- Memory usage metrics for the monitoring namespace
+
+### Manual Testing
+
+You can also manually generate load to see metrics in action:
 
 ```bash
 # Create a simple load generator
@@ -108,6 +139,17 @@ kubectl scale deployment load-generator --replicas=5
 # When finished testing
 kubectl delete deployment load-generator
 ```
+
+### CI/CD Integration
+
+This project includes a GitHub Actions workflow that automatically tests the monitoring stack on each push or pull request. The workflow:
+
+1. Sets up a Kind cluster
+2. Deploys the monitoring stack
+3. Runs the automated tests
+4. Reports the results
+
+You can view the workflow file at `.github/workflows/monitoring-tests.yml`
 
 ## 📚 Included Dashboards
 
