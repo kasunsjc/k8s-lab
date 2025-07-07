@@ -1,8 +1,8 @@
 # 🚀 Kubernetes Multi-Node Development Clusters
 
-[![🔶 Kind Lab Status](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/verify-kind-cluster.yml/badge.svg)](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/verify-kind-cluster.yml)
-[![🔷 Minikube Lab Status](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/verify-minikube-cluster.yml/badge.svg)](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/verify-minikube-cluster.yml)
-[![🚀 Daily Verification](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/daily-verification.yml/badge.svg)](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/daily-verification.yml)
+[![🔶 Kind Lab Status](https://github.com/kasunsjc/k8s-lab/actions/workflows/verify-kind-cluster.yml/badge.svg)](https://github.com/kasunsjc/k8s-lab/actions/workflows/verify-kind-cluster.yml)
+[![🔷 Minikube Lab Status](https://github.com/kasunsjc/k8s-lab/actions/workflows/verify-minikube-cluster.yml/badge.svg)](https://github.com/kasunsjc/k8s-lab/actions/workflows/verify-minikube-cluster.yml)
+[![🚀 Daily Verification](https://github.com/kasunsjc/k8s-lab/actions/workflows/daily-verification.yml/badge.svg)](https://github.com/kasunsjc/k8s-lab/actions/workflows/daily-verification.yml)
 
 This repository contains ready-to-use setup scripts and detailed instructions for creating powerful multi-node Kubernetes development clusters locally using two popular tools:
 
