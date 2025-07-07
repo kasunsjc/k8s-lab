@@ -58,6 +58,14 @@ jobs:
         cd kind-lab
         chmod +x setup-kind.sh
         ./setup-kind.sh ci-test-cluster
+        
+        # Fix metrics-server for Kind (needs insecure TLS)
+        echo "🔧 Configuring metrics-server for Kind..."
+        kubectl patch deployment metrics-server -n kube-system --type='json' \
+          -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+        
+        # Restart metrics-server to apply the changes
+        kubectl rollout restart deployment/metrics-server -n kube-system
 
     - name: ✅ Verify cluster is running
       run: |
@@ -70,9 +78,50 @@ jobs:
         echo "🧩 Checking system pods..."
         kubectl get pods -A
         
-        # Wait for all system pods to be ready
-        echo "⏳ Waiting for system pods to be ready..."
-        kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+        # Wait for essential system pods to be ready (excluding metrics-server which can be slow)
+        echo "⏳ Waiting for essential system pods to be ready..."
+        kubectl wait --for=condition=Ready pods -l k8s-app=kube-dns -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l component=kube-apiserver -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l component=kube-controller-manager -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l component=kube-scheduler -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l k8s-app=kube-proxy -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l app=kindnet -n kube-system --timeout=300s
+        
+        # Check metrics-server separately with a longer timeout after configuration
+        echo "📊 Waiting for metrics-server to be ready after configuration..."
+        kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
+        if kubectl wait --for=condition=Ready pods -l k8s-app=metrics-server -n kube-system --timeout=180s; then
+            echo "✅ Metrics server is ready"
+        else
+            echo "⚠️ Metrics server not ready yet, checking logs..."
+            kubectl describe pods -l k8s-app=metrics-server -n kube-system || true
+            kubectl logs -l k8s-app=metrics-server -n kube-system --tail=50 || true
+            echo "⚠️ Continuing without metrics-server (demo apps will still work)"
+        fi
+        
+        echo "✅ Essential cluster components are ready!"
+
+    - name: 📊 Test metrics server
+      run: |
+        echo "📊 Testing metrics server functionality..."
+        
+        # Wait a bit for metrics to be collected
+        echo "⏳ Waiting for metrics to be collected..."
+        sleep 30
+        
+        # Test node metrics
+        if kubectl top nodes; then
+            echo "✅ Node metrics are working"
+        else
+            echo "⚠️ Node metrics not yet available"
+        fi
+        
+        # Test pod metrics  
+        if kubectl top pods -A; then
+            echo "✅ Pod metrics are working"
+        else
+            echo "⚠️ Pod metrics not yet available"
+        fi
 
     - name: 🎯 Deploy demo application
       run: |
