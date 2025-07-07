@@ -101,9 +101,9 @@ jobs:
         
         echo "✅ Essential cluster components are ready!"
 
-    - name: � Final cluster verification
+    - name: 🔍 Final cluster verification
       run: |
-        echo "� Final verification of cluster health..."
+        echo "🔍 Final verification of cluster health..."
         kubectl get all -A
         kubectl describe nodes
         
