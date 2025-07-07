@@ -1,6 +1,9 @@
 name: Demo Application Tests
 
 on:
+  schedule:
+    # Run daily at 2:00 AM UTC (adjust timezone as needed)
+    - cron: '0 2 * * *'
   push:
     branches: [ main, develop ]
     paths:
@@ -14,12 +17,13 @@ on:
     inputs:
       cluster_type:
         description: 'Cluster type to test with'
-        required: true
-        default: 'kind'
+        required: false
+        default: 'both'
         type: choice
         options:
         - kind
         - minikube
+        - both
 
 env:
   CLUSTER_NAME: demo-app-test
@@ -29,7 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        cluster_type: [kind, minikube]
+        cluster_type: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cluster_type == 'kind' && fromJSON('["kind"]') || github.event_name == 'workflow_dispatch' && github.event.inputs.cluster_type == 'minikube' && fromJSON('["minikube"]') || fromJSON('["kind", "minikube"]') }}
+      fail-fast: false
     
     steps:
       - name: Checkout code
