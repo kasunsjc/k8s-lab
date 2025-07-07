@@ -1,5 +1,9 @@
 # 🚀 Kubernetes Multi-Node Development Clusters
 
+[![🔶 Kind Lab Status](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/verify-kind-cluster.yml/badge.svg)](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/verify-kind-cluster.yml)
+[![🔷 Minikube Lab Status](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/verify-minikube-cluster.yml/badge.svg)](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/verify-minikube-cluster.yml)
+[![🚀 Daily Verification](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/daily-verification.yml/badge.svg)](https://github.com/kasunrajapakse/Kubernetes-Lab/actions/workflows/daily-verification.yml)
+
 This repository contains ready-to-use setup scripts and detailed instructions for creating powerful multi-node Kubernetes development clusters locally using two popular tools:
 
 1. 🔷 **Minikube Lab** - A feature-rich multi-node Kubernetes cluster using Minikube
@@ -101,6 +105,54 @@ cd demo-app/advanced-demos
 
 See the README in the `demo-app/advanced-demos` directory for more details.
 
+## 🔄 Automated Testing & Verification
+
+This repository includes comprehensive GitHub Actions workflows that automatically verify the functionality of both lab setups:
+
+### 🤖 Automated Workflows
+
+- **🔶 Kind Lab Verification** - Tests Kind cluster setup, demo deployments, and advanced features
+- **🔷 Minikube Lab Verification** - Tests Minikube cluster setup, addons, and all demo applications  
+- **🚀 Daily Verification** - Runs both tests daily to ensure labs remain functional
+
+### 📊 Status Monitoring
+
+The badges at the top of this README show real-time status:
+
+- **Green ✅** - Lab setup is working correctly
+- **Red ❌** - Issues detected, check the workflow logs
+- **Yellow 🟡** - Tests are currently running
+
+### 🔧 What Gets Tested
+
+Each workflow verifies:
+
+- ✅ Cluster creation and node health
+- ✅ System component readiness (metrics-server, dashboard, etc.)
+- ✅ Demo application deployment and functionality
+- ✅ Advanced demos (StatefulSets, HPA, ConfigMaps)
+- ✅ Service accessibility and networking
+- ✅ Resource cleanup and teardown
+
+You can manually trigger these tests anytime by going to the **Actions** tab in the GitHub repository.
+
+### 🧪 Manual Testing
+
+For development and testing purposes, you can manually trigger the verification workflows:
+
+```bash
+# Test both setups
+./test-workflows.sh
+
+# Test only Kind setup
+./test-workflows.sh kind
+
+# Test only Minikube setup
+./test-workflows.sh minikube
+```
+
+> **Note:** This requires GitHub CLI (`gh`) to be installed and authenticated.
+
 ### Manual Setup
 
 You can also navigate to either the `minikube-lab` or `kind-lab` directory and follow the instructions in their respective README files. Both labs feature simple setup scripts that handle all the complexity for you.
@@ -122,6 +174,9 @@ You can also navigate to either the `minikube-lab` or `kind-lab` directory and f
 - ✅ Detailed documentation with examples
 - ✅ Advanced demos of key Kubernetes features (StatefulSets, HPA, ConfigMaps, etc.)
 - ✅ Unified cluster management script
+- ✅ **Automated daily verification** - GitHub Actions workflows test both setups daily
+- ✅ **Continuous integration** - Status badges show real-time lab health
+- ✅ **Quality assurance** - Comprehensive testing of cluster setup and demo deployments
 
 ## 📂 Repository Structure
 
@@ -129,6 +184,12 @@ You can also navigate to either the `minikube-lab` or `kind-lab` directory and f
 Kubernetes-Lab/
 ├── README.md                     # This file
 ├── k8s-lab.sh                    # Unified management script for all clusters
+├── test-workflows.sh             # Manual workflow testing script
+├── .github/                      # GitHub Actions workflows
+│   └── workflows/
+│       ├── verify-kind-cluster.yml      # Kind lab verification
+│       ├── verify-minikube-cluster.yml  # Minikube lab verification
+│       └── daily-verification.yml       # Daily automated testing
 ├── minikube-lab/                 # Minikube-specific files
 │   ├── README.md                 # Minikube setup instructions
 │   └── setup-minikube.sh         # Minikube cluster setup script

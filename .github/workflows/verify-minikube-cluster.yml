@@ -1,0 +1,188 @@
+name: 🔷 Verify Minikube Cluster Setup
+
+on:
+  schedule:
+    # Run daily at 08:30 UTC (offset from Kind workflow)
+    - cron: '30 8 * * *'
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'minikube-lab/**'
+      - 'demo-app/**'
+      - 'k8s-lab.sh'
+      - '.github/workflows/verify-minikube-cluster.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'minikube-lab/**'
+      - 'demo-app/**'
+      - 'k8s-lab.sh'
+      - '.github/workflows/verify-minikube-cluster.yml'
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  verify-minikube-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: 📦 Install Minikube
+      run: |
+        # Install Minikube
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        sudo install minikube-linux-amd64 /usr/local/bin/minikube
+        rm minikube-linux-amd64
+        
+        # Verify installation
+        minikube version
+
+    - name: 🔧 Install kubectl
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/kubectl
+        
+        # Verify installation
+        kubectl version --client
+
+    - name: 🚀 Set up Minikube cluster
+      run: |
+        echo "🔷 Setting up Minikube cluster for verification..."
+        cd minikube-lab
+        chmod +x setup-minikube.sh
+        ./setup-minikube.sh ci-test-profile
+
+    - name: ✅ Verify cluster is running
+      run: |
+        echo "🔍 Checking cluster status..."
+        minikube status -p ci-test-profile
+        kubectl cluster-info
+        
+        echo "📊 Checking node status..."
+        kubectl get nodes -o wide
+        
+        echo "🧩 Checking system pods..."
+        kubectl get pods -A
+        
+        # Wait for all system pods to be ready
+        echo "⏳ Waiting for system pods to be ready..."
+        kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+
+    - name: 🎛️ Verify Minikube addons
+      run: |
+        echo "🎛️ Checking enabled addons..."
+        minikube addons list -p ci-test-profile
+        
+        echo "📊 Verifying metrics-server..."
+        kubectl get pods -n kube-system -l k8s-app=metrics-server
+        
+        echo "📋 Verifying dashboard..."
+        kubectl get pods -n kubernetes-dashboard || echo "Dashboard may not be fully ready yet"
+
+    - name: 🎯 Deploy demo application
+      run: |
+        echo "🚀 Deploying demo application..."
+        cd demo-app
+        chmod +x deploy-demo.sh
+        ./deploy-demo.sh minikube ci-test-profile
+        
+        echo "⏳ Waiting for demo pods to be ready..."
+        kubectl wait --for=condition=Ready pods --all -n default --timeout=300s
+
+    - name: 🧪 Test demo application
+      run: |
+        echo "🧪 Testing demo application functionality..."
+        
+        # Get demo app pod
+        POD_NAME=$(kubectl get pods -l app=demo-app -o jsonpath='{.items[0].metadata.name}')
+        echo "Demo app pod: $POD_NAME"
+        
+        # Test pod is running
+        kubectl get pod $POD_NAME
+        
+        # Test service is accessible via minikube service
+        minikube service demo-app --url -p ci-test-profile &
+        SERVICE_PID=$!
+        sleep 10
+        
+        # Get the service URL
+        SERVICE_URL=$(minikube service demo-app --url -p ci-test-profile)
+        echo "Service URL: $SERVICE_URL"
+        
+        # Test HTTP response
+        if curl -f $SERVICE_URL; then
+            echo "✅ Demo app is responding correctly"
+        else
+            echo "❌ Demo app is not responding"
+            exit 1
+        fi
+        
+        # Clean up
+        kill $SERVICE_PID || true
+
+    - name: 🏗️ Test advanced demos
+      run: |
+        echo "🏗️ Testing advanced demo deployments..."
+        cd demo-app/advanced-demos
+        chmod +x deploy-advanced-demos.sh
+        
+        # Test each demo individually
+        echo "Testing ConfigMap/Secret demo..."
+        ./deploy-advanced-demos.sh minikube ci-test-profile configmap
+        kubectl wait --for=condition=Ready pods -l app=configmap-secret-demo --timeout=180s
+        
+        echo "Testing StatefulSet demo..."
+        ./deploy-advanced-demos.sh minikube ci-test-profile stateful
+        kubectl wait --for=condition=Ready pods -l app=mongodb --timeout=300s
+        
+        echo "Testing HPA demo..."
+        ./deploy-advanced-demos.sh minikube ci-test-profile hpa
+        kubectl wait --for=condition=Ready pods -l app=hpa-demo --timeout=180s
+
+    - name: 📊 Test metrics server
+      run: |
+        echo "📊 Testing metrics server functionality..."
+        
+        # Wait for metrics to be available
+        echo "⏳ Waiting for metrics to be collected..."
+        sleep 30
+        
+        # Test node metrics
+        kubectl top nodes || echo "Node metrics not yet available"
+        
+        # Test pod metrics
+        kubectl top pods || echo "Pod metrics not yet available"
+
+    - name: 🔍 Final cluster verification
+      run: |
+        echo "🔍 Final verification of cluster health..."
+        kubectl get all -A
+        
+        echo "📊 Resource usage summary:"
+        kubectl describe nodes
+        
+        echo "🎛️ Final addon status:"
+        minikube addons list -p ci-test-profile
+
+    - name: 🧹 Cleanup
+      if: always()
+      run: |
+        echo "🧹 Cleaning up resources..."
+        minikube delete -p ci-test-profile || true
+        docker system prune -f || true
+
+    - name: 📊 Report Results
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Minikube cluster verification PASSED"
+        else
+          echo "❌ Minikube cluster verification FAILED"
+        fi

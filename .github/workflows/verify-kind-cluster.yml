@@ -1,0 +1,156 @@
+name: 🔶 Verify Kind Cluster Setup
+
+on:
+  schedule:
+    # Run daily at 08:00 UTC
+    - cron: '0 8 * * *'
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'kind-lab/**'
+      - 'demo-app/**'
+      - 'k8s-lab.sh'
+      - '.github/workflows/verify-kind-cluster.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'kind-lab/**'
+      - 'demo-app/**'
+      - 'k8s-lab.sh'
+      - '.github/workflows/verify-kind-cluster.yml'
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  verify-kind-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: 📦 Install Kind
+      run: |
+        # Install Kind
+        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
+        
+        # Verify installation
+        kind version
+
+    - name: 🔧 Install kubectl
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/kubectl
+        
+        # Verify installation
+        kubectl version --client
+
+    - name: 🚀 Set up Kind cluster
+      run: |
+        echo "🔶 Setting up Kind cluster for verification..."
+        cd kind-lab
+        chmod +x setup-kind.sh
+        ./setup-kind.sh ci-test-cluster
+
+    - name: ✅ Verify cluster is running
+      run: |
+        echo "🔍 Checking cluster status..."
+        kubectl cluster-info --context kind-ci-test-cluster
+        
+        echo "📊 Checking node status..."
+        kubectl get nodes -o wide
+        
+        echo "🧩 Checking system pods..."
+        kubectl get pods -A
+        
+        # Wait for all system pods to be ready
+        echo "⏳ Waiting for system pods to be ready..."
+        kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+
+    - name: 🎯 Deploy demo application
+      run: |
+        echo "🚀 Deploying demo application..."
+        cd demo-app
+        chmod +x deploy-demo.sh
+        ./deploy-demo.sh kind ci-test-cluster
+        
+        echo "⏳ Waiting for demo pods to be ready..."
+        kubectl wait --for=condition=Ready pods --all -n default --timeout=300s
+
+    - name: 🧪 Test demo application
+      run: |
+        echo "🧪 Testing demo application functionality..."
+        
+        # Get demo app pod
+        POD_NAME=$(kubectl get pods -l app=demo-app -o jsonpath='{.items[0].metadata.name}')
+        echo "Demo app pod: $POD_NAME"
+        
+        # Test pod is running
+        kubectl get pod $POD_NAME
+        
+        # Test service is accessible (port-forward and test)
+        kubectl port-forward svc/demo-app 8080:80 &
+        PF_PID=$!
+        sleep 5
+        
+        # Test HTTP response
+        if curl -f http://localhost:8080; then
+            echo "✅ Demo app is responding correctly"
+        else
+            echo "❌ Demo app is not responding"
+            exit 1
+        fi
+        
+        # Clean up port-forward
+        kill $PF_PID || true
+
+    - name: 🏗️ Test advanced demos
+      run: |
+        echo "🏗️ Testing advanced demo deployments..."
+        cd demo-app/advanced-demos
+        chmod +x deploy-advanced-demos.sh
+        
+        # Test each demo individually
+        echo "Testing ConfigMap/Secret demo..."
+        ./deploy-advanced-demos.sh kind ci-test-cluster configmap
+        kubectl wait --for=condition=Ready pods -l app=configmap-secret-demo --timeout=180s
+        
+        echo "Testing StatefulSet demo..."
+        ./deploy-advanced-demos.sh kind ci-test-cluster stateful
+        kubectl wait --for=condition=Ready pods -l app=mongodb --timeout=300s
+        
+        echo "Testing HPA demo..."
+        ./deploy-advanced-demos.sh kind ci-test-cluster hpa
+        kubectl wait --for=condition=Ready pods -l app=hpa-demo --timeout=180s
+
+    - name: 🔍 Final cluster verification
+      run: |
+        echo "🔍 Final verification of cluster health..."
+        kubectl get all -A
+        kubectl top nodes || echo "Metrics server might not be fully ready yet"
+        
+        echo "📊 Resource usage summary:"
+        kubectl describe nodes
+
+    - name: 🧹 Cleanup
+      if: always()
+      run: |
+        echo "🧹 Cleaning up resources..."
+        kind delete cluster --name ci-test-cluster || true
+        docker system prune -f || true
+
+    - name: 📊 Report Results
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Kind cluster verification PASSED"
+        else
+          echo "❌ Kind cluster verification FAILED"
+        fi
