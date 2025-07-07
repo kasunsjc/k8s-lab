@@ -1,9 +1,6 @@
 name: 🔶 Verify Kind Cluster Setup
 
 on:
-  schedule:
-    # Run daily at 08:00 UTC
-    - cron: '0 8 * * *'
   push:
     branches: [ main, master ]
     paths:
