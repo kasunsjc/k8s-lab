@@ -190,17 +190,21 @@ trigger_workflow() {
     echo -e "${YELLOW}🚀 Triggering $workflow_name workflow on branch '$branch'...${NC}"
     
     if [ "$workflow_name" = "daily-verification" ]; then
-        gh workflow run daily-verification.yml --ref "$branch" -f test_type="$test_type"
+        if gh workflow run daily-verification.yml --ref "$branch" -f test_type="$test_type"; then
+            echo -e "${GREEN}✅ Workflow triggered successfully!${NC}"
+            echo -e "📊 View progress at: ${CYAN}https://github.com/$(gh repo view --json owner,name -q '.owner.login + "/" + .name')/actions${NC}"
+        else
+            echo -e "${RED}❌ Failed to trigger workflow${NC}"
+            return 1
+        fi
     else
-        gh workflow run "$workflow_name.yml" --ref "$branch"
-    fi
-    
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ Workflow triggered successfully!${NC}"
-        echo -e "📊 View progress at: ${CYAN}https://github.com/$(gh repo view --json owner,name -q '.owner.login + "/" + .name')/actions${NC}"
-    else
-        echo -e "${RED}❌ Failed to trigger workflow${NC}"
-        return 1
+        if gh workflow run "$workflow_name.yml" --ref "$branch"; then
+            echo -e "${GREEN}✅ Workflow triggered successfully!${NC}"
+            echo -e "📊 View progress at: ${CYAN}https://github.com/$(gh repo view --json owner,name -q '.owner.login + "/" + .name')/actions${NC}"
+        else
+            echo -e "${RED}❌ Failed to trigger workflow${NC}"
+            return 1
+        fi
     fi
 }
 
