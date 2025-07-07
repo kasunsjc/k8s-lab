@@ -55,9 +55,47 @@ jobs:
     - name: 🚀 Set up Minikube cluster
       run: |
         echo "🔷 Setting up Minikube cluster for verification..."
-        cd minikube-lab
-        chmod +x setup-minikube.sh
-        ./setup-minikube.sh ci-test-profile
+        
+        # Note: We use minikube directly instead of setup-minikube.sh for CI
+        # because the script defaults to 'none' driver in CI, which doesn't support multi-node
+        
+        # Set up environment for CI
+        export MINIKUBE_HOME=$HOME
+        export CHANGE_MINIKUBE_NONE_USER=true
+        export KUBECONFIG=$HOME/.kube/config
+        
+        # Create kubeconfig directory
+        mkdir -p $HOME/.kube
+        
+        # Clean up any existing minikube state
+        minikube delete --all || true
+        
+        echo "🚗 Starting Minikube with docker driver for CI..."
+        
+        # Start minikube directly with docker driver (multi-node compatible)
+        minikube start \
+          --profile=ci-test-profile \
+          --nodes=3 \
+          --driver=docker \
+          --kubernetes-version=stable \
+          --cpus=2 \
+          --memory=4g \
+          --wait=all \
+          --wait-timeout=600s
+        
+        echo "✅ Verifying cluster status..."
+        minikube status -p ci-test-profile
+        kubectl get nodes -o wide
+        
+        echo "🧩 Enabling useful addons..."
+        minikube addons enable dashboard -p ci-test-profile
+        minikube addons enable metrics-server -p ci-test-profile
+        minikube addons enable ingress -p ci-test-profile
+        
+        echo "ℹ️ Cluster Information:"
+        kubectl cluster-info
+        
+        echo "🎉 Minikube cluster setup complete!"
 
     - name: ✅ Verify cluster is running
       run: |
@@ -175,8 +213,16 @@ jobs:
       if: always()
       run: |
         echo "🧹 Cleaning up resources..."
+        
+        # Stop and delete minikube cluster
+        minikube stop -p ci-test-profile || true
         minikube delete -p ci-test-profile || true
+        
+        # Clean up docker containers and volumes
         docker system prune -f || true
+        docker volume prune -f || true
+        
+        echo "✅ Cleanup completed"
 
     - name: 📊 Report Results
       if: always()
