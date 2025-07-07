@@ -78,7 +78,7 @@ jobs:
           --nodes=3 \
           --driver=docker \
           --kubernetes-version=stable \
-          --cpus=1 \
+          --cpus=2 \
           --memory=2g \
           --wait=all \
           --wait-timeout=600s
