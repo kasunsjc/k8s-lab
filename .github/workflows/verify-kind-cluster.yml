@@ -131,29 +131,60 @@ jobs:
         ./deploy-demo.sh kind ci-test-cluster
         
         echo "⏳ Waiting for demo pods to be ready..."
-        kubectl wait --for=condition=Ready pods --all -n default --timeout=300s
+        kubectl wait --for=condition=Ready pods -l app=microservices-demo --timeout=300s
 
     - name: 🧪 Test demo application
       run: |
         echo "🧪 Testing demo application functionality..."
         
-        # Get demo app pod
-        POD_NAME=$(kubectl get pods -l app=demo-app -o jsonpath='{.items[0].metadata.name}')
+        # First, check what pods are actually running
+        echo "📊 Current pods in default namespace:"
+        kubectl get pods -o wide
+        
+        # Check if microservices-demo deployment exists and is ready
+        echo "🔍 Checking microservices-demo deployment status..."
+        kubectl get deployment microservices-demo
+        kubectl describe deployment microservices-demo
+        
+        # Get demo app pod with correct label
+        echo "🔍 Looking for microservices-demo pods..."
+        if ! kubectl get pods -l app=microservices-demo --no-headers | grep -q "Running"; then
+            echo "❌ No running microservices-demo pods found"
+            echo "📊 All pods in default namespace:"
+            kubectl get pods -A
+            echo "📝 Deployment logs:"
+            kubectl logs deployment/microservices-demo --tail=50 || true
+            exit 1
+        fi
+        
+        POD_NAME=$(kubectl get pods -l app=microservices-demo -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [ -z "$POD_NAME" ]; then
+            echo "❌ Could not find microservices-demo pod"
+            exit 1
+        fi
+        
         echo "Demo app pod: $POD_NAME"
         
         # Test pod is running
         kubectl get pod $POD_NAME
         
         # Test service is accessible (port-forward and test)
-        kubectl port-forward svc/demo-app 8080:80 &
+        echo "🌐 Testing service accessibility..."
+        kubectl port-forward svc/frontend 8080:80 &
         PF_PID=$!
-        sleep 5
+        sleep 10
         
         # Test HTTP response
-        if curl -f http://localhost:8080; then
+        echo "🔗 Testing HTTP endpoint..."
+        if curl -f -s http://localhost:8080 > /dev/null; then
             echo "✅ Demo app is responding correctly"
         else
             echo "❌ Demo app is not responding"
+            echo "🔍 Service details:"
+            kubectl describe svc/frontend
+            echo "🔍 Pod logs:"
+            kubectl logs $POD_NAME --tail=20 || true
+            kill $PF_PID || true
             exit 1
         fi
         

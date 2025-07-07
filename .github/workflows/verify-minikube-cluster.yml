@@ -132,32 +132,61 @@ jobs:
         ./deploy-demo.sh minikube ci-test-profile
         
         echo "⏳ Waiting for demo pods to be ready..."
-        kubectl wait --for=condition=Ready pods --all -n default --timeout=300s
+        kubectl wait --for=condition=Ready pods -l app=microservices-demo --timeout=300s
 
     - name: 🧪 Test demo application
       run: |
         echo "🧪 Testing demo application functionality..."
         
-        # Get demo app pod
-        POD_NAME=$(kubectl get pods -l app=demo-app -o jsonpath='{.items[0].metadata.name}')
+        # First, check what pods are actually running
+        echo "📊 Current pods in default namespace:"
+        kubectl get pods -o wide
+        
+        # Check if microservices-demo deployment exists and is ready
+        echo "🔍 Checking microservices-demo deployment status..."
+        kubectl get deployment microservices-demo
+        
+        # Get demo app pod with correct label
+        echo "🔍 Looking for microservices-demo pods..."
+        if ! kubectl get pods -l app=microservices-demo --no-headers | grep -q "Running"; then
+            echo "❌ No running microservices-demo pods found"
+            kubectl get pods -A
+            exit 1
+        fi
+        
+        POD_NAME=$(kubectl get pods -l app=microservices-demo -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [ -z "$POD_NAME" ]; then
+            echo "❌ Could not find microservices-demo pod"
+            exit 1
+        fi
+        
         echo "Demo app pod: $POD_NAME"
         
         # Test pod is running
         kubectl get pod $POD_NAME
         
         # Test service is accessible via minikube service
-        minikube service demo-app --url -p ci-test-profile &
+        echo "🌐 Testing service accessibility via Minikube..."
+        minikube service frontend --url -p ci-test-profile &
         SERVICE_PID=$!
         sleep 10
         
         # Get the service URL
-        SERVICE_URL=$(minikube service demo-app --url -p ci-test-profile)
+        SERVICE_URL=$(minikube service frontend --url -p ci-test-profile)
         echo "Service URL: $SERVICE_URL"
         
         # Test HTTP response
-        if curl -f $SERVICE_URL; then
+        if curl -f -s $SERVICE_URL > /dev/null; then
             echo "✅ Demo app is responding correctly"
         else
+            echo "❌ Demo app is not responding"
+            echo "🔍 Service details:"
+            kubectl describe svc/frontend
+            echo "🔍 Pod logs:"
+            kubectl logs $POD_NAME --tail=20 || true
+            kill $SERVICE_PID || true
+            exit 1
+        fi
             echo "❌ Demo app is not responding"
             exit 1
         fi
