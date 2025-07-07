@@ -141,17 +141,25 @@ You can manually trigger these tests anytime by going to the **Actions** tab in 
 For development and testing purposes, you can manually trigger the verification workflows:
 
 ```bash
-# Test both setups
+# Test both setups on current branch
 ./test-workflows.sh
 
-# Test only Kind setup
+# Test only Kind setup on current branch
 ./test-workflows.sh kind
 
-# Test only Minikube setup
+# Test only Minikube setup on current branch
 ./test-workflows.sh minikube
+
+# Test both setups on a specific branch
+./test-workflows.sh both feature/my-branch
+
+# Test Kind setup on main branch
+./test-workflows.sh kind main
 ```
 
 > **Note:** This requires GitHub CLI (`gh`) to be installed and authenticated.
+>
+> **Important:** Workflows must exist on the specified branch to be triggered. If you're testing on a feature branch, make sure the workflow files are committed to that branch.
 
 ### Manual Setup
 

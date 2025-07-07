@@ -23,19 +23,24 @@ echo
 
 show_help() {
     echo -e "${CYAN}Usage:${NC}"
-    echo -e "  $0 ${GREEN}[test-type]${NC}"
+    echo -e "  $0 ${GREEN}[test-type] [branch]${NC}"
     echo
     echo -e "${CYAN}Test Types:${NC}"
     echo -e "  ${GREEN}kind${NC}      - Test Kind cluster setup only"
     echo -e "  ${GREEN}minikube${NC}  - Test Minikube cluster setup only"
     echo -e "  ${GREEN}both${NC}      - Test both setups (default)"
     echo
+    echo -e "${CYAN}Branch:${NC}"
+    echo -e "  ${GREEN}[branch]${NC}  - Branch to run workflow on (default: current branch)"
+    echo
     echo -e "${CYAN}Examples:${NC}"
-    echo -e "  $0           # Test both Kind and Minikube"
-    echo -e "  $0 kind      # Test only Kind setup"
-    echo -e "  $0 minikube  # Test only Minikube setup"
+    echo -e "  $0                           # Test both on current branch"
+    echo -e "  $0 kind                      # Test only Kind on current branch"
+    echo -e "  $0 minikube main             # Test only Minikube on main branch"
+    echo -e "  $0 both feature/my-branch    # Test both on specific branch"
     echo
     echo -e "${YELLOW}Note:${NC} This script requires GitHub CLI (gh) to be installed and authenticated."
+    echo -e "${YELLOW}Note:${NC} Workflows must exist on the specified branch to be triggered."
 }
 
 check_gh_cli() {
@@ -56,16 +61,45 @@ check_gh_cli() {
     fi
 }
 
+get_current_branch() {
+    git branch --show-current 2>/dev/null || echo "main"
+}
+
+check_workflow_exists() {
+    local workflow_file=$1
+    local branch=$2
+    
+    echo -e "${CYAN}🔍 Checking if workflow exists on branch '$branch'...${NC}"
+    
+    # Check if workflow file exists on the specified branch
+    if git show "$branch:.github/workflows/$workflow_file" &> /dev/null; then
+        echo -e "${GREEN}✅ Workflow '$workflow_file' found on branch '$branch'${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ Workflow '$workflow_file' not found on branch '$branch'${NC}"
+        echo -e "💡 Make sure the workflow file exists and is committed to the branch"
+        return 1
+    fi
+}
+
 trigger_workflow() {
     local workflow_name=$1
     local test_type=${2:-"both"}
+    local branch=${3:-$(get_current_branch)}
     
-    echo -e "${YELLOW}🚀 Triggering $workflow_name workflow...${NC}"
+    local workflow_file="$workflow_name.yml"
+    
+    # Check if workflow exists on the branch
+    if ! check_workflow_exists "$workflow_file" "$branch"; then
+        return 1
+    fi
+    
+    echo -e "${YELLOW}🚀 Triggering $workflow_name workflow on branch '$branch'...${NC}"
     
     if [ "$workflow_name" = "daily-verification" ]; then
-        gh workflow run daily-verification.yml -f test_type="$test_type"
+        gh workflow run daily-verification.yml --ref "$branch" -f test_type="$test_type"
     else
-        gh workflow run "$workflow_name.yml"
+        gh workflow run "$workflow_name.yml" --ref "$branch"
     fi
     
     if [ $? -eq 0 ]; then
@@ -79,6 +113,13 @@ trigger_workflow() {
 
 # Main script
 TEST_TYPE=${1:-"both"}
+BRANCH=${2:-$(get_current_branch)}
+
+# Display current settings
+echo -e "${CYAN}🔧 Configuration:${NC}"
+echo -e "  Test Type: ${GREEN}$TEST_TYPE${NC}"
+echo -e "  Branch: ${GREEN}$BRANCH${NC}"
+echo
 
 case $TEST_TYPE in
     help|--help|-h)
@@ -86,13 +127,13 @@ case $TEST_TYPE in
         exit 0
         ;;
     kind)
-        echo -e "${BLUE}🔶 Testing Kind cluster setup only...${NC}"
+        echo -e "${BLUE}🔶 Testing Kind cluster setup only on branch '$BRANCH'...${NC}"
         ;;
     minikube)
-        echo -e "${BLUE}🔷 Testing Minikube cluster setup only...${NC}"
+        echo -e "${BLUE}🔷 Testing Minikube cluster setup only on branch '$BRANCH'...${NC}"
         ;;
     both)
-        echo -e "${BLUE}🚀 Testing both Kind and Minikube cluster setups...${NC}"
+        echo -e "${BLUE}🚀 Testing both Kind and Minikube cluster setups on branch '$BRANCH'...${NC}"
         ;;
     *)
         echo -e "${RED}❌ Invalid test type: $TEST_TYPE${NC}"
@@ -105,6 +146,20 @@ esac
 # Check prerequisites
 check_gh_cli
 
+# Verify git repository
+if ! git rev-parse --git-dir &> /dev/null; then
+    echo -e "${RED}❌ Error: Not in a git repository${NC}"
+    exit 1
+fi
+
+# Check if branch exists
+if ! git show-ref --verify --quiet "refs/heads/$BRANCH" && ! git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+    echo -e "${RED}❌ Error: Branch '$BRANCH' does not exist${NC}"
+    echo -e "💡 Available branches:"
+    git branch -a | sed 's/^/   /'
+    exit 1
+fi
+
 echo -e "${YELLOW}⚠️  This will trigger GitHub Actions workflows which consume runner minutes.${NC}"
 read -p "Continue? (y/N): " -n 1 -r
 echo
@@ -116,13 +171,13 @@ fi
 # Trigger appropriate workflows
 case $TEST_TYPE in
     kind)
-        trigger_workflow "verify-kind-cluster"
+        trigger_workflow "verify-kind-cluster" "" "$BRANCH"
         ;;
     minikube)
-        trigger_workflow "verify-minikube-cluster"
+        trigger_workflow "verify-minikube-cluster" "" "$BRANCH"
         ;;
     both)
-        trigger_workflow "daily-verification" "both"
+        trigger_workflow "daily-verification" "both" "$BRANCH"
         ;;
 esac
 
