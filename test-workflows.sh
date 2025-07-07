@@ -114,8 +114,12 @@ check_workflow_api_availability() {
     
     echo -e "${CYAN}🔍 Checking if workflow is available via GitHub API...${NC}"
     
+    # Retrieve the repository context
+    local repo_context
+    repo_context=$(gh repo view --json owner,name -q '.owner.login+"/"+.name')
+    
     # Try to get workflow info via GitHub API
-    if gh api "repos/{owner}/{repo}/actions/workflows/$workflow_file" &> /dev/null; then
+    if gh api "repos/$repo_context/actions/workflows/$workflow_file" &> /dev/null; then
         echo -e "${GREEN}✅ Workflow is available via GitHub API${NC}"
         return 0
     else
