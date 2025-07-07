@@ -30,7 +30,7 @@ merge_to_main() {
     # Check if we have uncommitted changes
     if ! git diff-index --quiet HEAD --; then
         echo -e "${YELLOW}⚠️  You have uncommitted changes. Committing them first...${NC}"
-        git add .
+        git add .github/workflows/ test-workflows.sh
         read -p "Enter commit message (or press Enter for default): " commit_msg
         if [ -z "$commit_msg" ]; then
             commit_msg="Update workflows and test script"
