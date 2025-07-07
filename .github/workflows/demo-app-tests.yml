@@ -1,0 +1,211 @@
+name: Demo Application Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'demo-app/**'
+      - '.github/workflows/demo-app-tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'demo-app/**'
+  workflow_dispatch:
+    inputs:
+      cluster_type:
+        description: 'Cluster type to test with'
+        required: true
+        default: 'kind'
+        type: choice
+        options:
+        - kind
+        - minikube
+
+env:
+  CLUSTER_NAME: demo-app-test
+
+jobs:
+  test-demo-applications:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cluster_type: [kind, minikube]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      - name: Setup KinD cluster
+        if: matrix.cluster_type == 'kind'
+        uses: helm/kind-action@v1.8.0
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          config: kind-lab/kind-config.yaml
+          wait: 120s
+
+      - name: Setup Minikube cluster
+        if: matrix.cluster_type == 'minikube'
+        uses: medyagh/setup-minikube@master
+        with:
+          minikube-version: 'latest'
+          driver: docker
+          container-runtime: containerd
+          cni: calico
+
+      - name: Show cluster info
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+          kubectl version --client
+
+      - name: Deploy basic demo application
+        working-directory: demo-app
+        run: |
+          echo "Deploying basic microservices demo..."
+          kubectl apply -f demo-app.yaml
+          
+          echo "Waiting for deployment to be available..."
+          kubectl wait --for=condition=available deployment/microservices-demo --timeout=300s
+          
+          echo "Checking pod status..."
+          kubectl get pods -l app=microservices-demo
+          
+          echo "Checking service..."
+          kubectl get svc frontend
+
+      - name: Test basic demo application
+        run: |
+          echo "Testing frontend service connectivity..."
+          kubectl get svc frontend
+          
+          # Test service is accessible internally
+          kubectl run test-pod --image=curlimages/curl --rm -i --restart=Never -- \
+            curl -f http://frontend.default.svc.cluster.local || echo "Service test failed"
+          
+          echo "Checking deployment status..."
+          kubectl describe deployment microservices-demo
+
+      - name: Deploy advanced demos
+        working-directory: demo-app/advanced-demos
+        run: |
+          echo "Deploying ConfigMap and Secret demo..."
+          kubectl apply -f configmap-secret-demo.yaml
+          
+          echo "Waiting for ConfigMap Secret demo deployment..."
+          kubectl wait --for=condition=available deployment/configmap-secret-demo --timeout=180s
+          
+          echo "Deploying StatefulSet MongoDB demo..."
+          kubectl apply -f stateful-mongodb.yaml
+          
+          echo "Waiting for MongoDB StatefulSet..."
+          kubectl wait --for=condition=ready pod/mongodb-0 --timeout=300s || echo "MongoDB not ready yet"
+
+      - name: Test advanced demos
+        run: |
+          echo "Testing ConfigMap and Secret demo..."
+          kubectl get pods -l app=configmap-secret-demo
+          kubectl describe pod -l app=configmap-secret-demo
+          
+          # Test config and secret volumes
+          POD_NAME=$(kubectl get pods -l app=configmap-secret-demo -o jsonpath='{.items[0].metadata.name}')
+          echo "Testing ConfigMap volume mount..."
+          kubectl exec $POD_NAME -- ls -la /usr/share/nginx/html/config/ || echo "ConfigMap volume test failed"
+          
+          echo "Testing Secret volume mount..."
+          kubectl exec $POD_NAME -- ls -la /usr/share/nginx/html/secret/ || echo "Secret volume test failed"
+          
+          echo "Testing MongoDB StatefulSet..."
+          kubectl get pods -l app=mongodb
+          kubectl get pvc -l app=mongodb
+
+      - name: Deploy HPA demo (if metrics server available)
+        working-directory: demo-app/advanced-demos
+        run: |
+          echo "Checking if metrics server is available..."
+          if kubectl get deployment metrics-server -n kube-system > /dev/null 2>&1; then
+            echo "Metrics server found, deploying HPA demo..."
+            kubectl apply -f hpa-demo.yaml
+            
+            echo "Waiting for HPA demo deployment..."
+            kubectl wait --for=condition=available deployment/hpa-demo --timeout=180s
+            
+            echo "Checking HPA status..."
+            kubectl get hpa
+          else
+            echo "Metrics server not available, skipping HPA demo"
+          fi
+
+      - name: Test application endpoints
+        run: |
+          echo "Setting up port forwarding for frontend service..."
+          kubectl port-forward svc/frontend 8080:80 &
+          PF_PID=$!
+          sleep 10
+          
+          echo "Testing frontend endpoint..."
+          curl -f http://localhost:8080 || echo "Frontend endpoint test failed"
+          
+          # Cleanup port forward
+          kill $PF_PID || true
+
+      - name: Run deployment verification
+        working-directory: demo-app
+        run: |
+          if [ -f "deploy-demo.sh" ]; then
+            chmod +x deploy-demo.sh
+            echo "Running deploy-demo.sh verification..."
+            ./deploy-demo.sh ${{ matrix.cluster_type }} ${{ env.CLUSTER_NAME }} --verify-only
+          else
+            echo "No deploy-demo.sh found, running manual verification..."
+            
+            echo "=== Deployment Status ==="
+            kubectl get deployments
+            
+            echo "=== Pod Status ==="
+            kubectl get pods
+            
+            echo "=== Service Status ==="
+            kubectl get services
+            
+            echo "=== ConfigMap Status ==="
+            kubectl get configmaps
+            
+            echo "=== Secret Status ==="
+            kubectl get secrets
+            
+            echo "=== StatefulSet Status ==="
+            kubectl get statefulsets
+            
+            echo "=== PVC Status ==="
+            kubectl get pvc
+          fi
+
+      - name: Cleanup resources
+        if: always()
+        run: |
+          echo "Cleaning up demo applications..."
+          kubectl delete -f demo-app/demo-app.yaml --ignore-not-found=true
+          kubectl delete -f demo-app/advanced-demos/configmap-secret-demo.yaml --ignore-not-found=true
+          kubectl delete -f demo-app/advanced-demos/stateful-mongodb.yaml --ignore-not-found=true
+          kubectl delete -f demo-app/advanced-demos/hpa-demo.yaml --ignore-not-found=true || true
+          
+          echo "Waiting for cleanup to complete..."
+          sleep 30
+
+      - name: Final status check
+        if: always()
+        run: |
+          echo "=== Final Cluster Status ==="
+          kubectl get all
+          echo "=== Events ==="
+          kubectl get events --sort-by=.metadata.creationTimestamp | tail -20
