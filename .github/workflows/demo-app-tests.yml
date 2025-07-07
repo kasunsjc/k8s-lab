@@ -62,11 +62,29 @@ jobs:
           container-runtime: containerd
           cni: calico
 
+      - name: Configure Minikube profile
+        if: matrix.cluster_type == 'minikube'
+        run: |
+          # Stop default minikube and start with our profile name
+          minikube stop || true
+          minikube start --profile=${{ env.CLUSTER_NAME }} --driver=docker --container-runtime=containerd
+          minikube profile ${{ env.CLUSTER_NAME }}
+          
+          # Wait for cluster to be ready
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
       - name: Show cluster info
         run: |
           kubectl cluster-info
           kubectl get nodes
           kubectl version --client
+          
+          # For minikube, show profile information
+          if [ "${{ matrix.cluster_type }}" == "minikube" ]; then
+            echo "=== Minikube Profile Information ==="
+            minikube profile list
+            echo "Current profile: $(minikube profile)"
+          fi
 
       - name: Deploy basic demo application
         working-directory: demo-app
@@ -161,34 +179,41 @@ jobs:
       - name: Run deployment verification
         working-directory: demo-app
         run: |
-          if [ -f "deploy-demo.sh" ]; then
-            chmod +x deploy-demo.sh
-            echo "Running deploy-demo.sh verification..."
-            ./deploy-demo.sh ${{ matrix.cluster_type }} ${{ env.CLUSTER_NAME }} --verify-only
-          else
-            echo "No deploy-demo.sh found, running manual verification..."
-            
-            echo "=== Deployment Status ==="
-            kubectl get deployments
-            
-            echo "=== Pod Status ==="
-            kubectl get pods
-            
-            echo "=== Service Status ==="
-            kubectl get services
-            
-            echo "=== ConfigMap Status ==="
-            kubectl get configmaps
-            
-            echo "=== Secret Status ==="
-            kubectl get secrets
-            
-            echo "=== StatefulSet Status ==="
-            kubectl get statefulsets
-            
-            echo "=== PVC Status ==="
-            kubectl get pvc
-          fi
+          echo "=== Cluster Context Verification ==="
+          kubectl config current-context
+          kubectl cluster-info
+          
+          echo "=== Deployment Status ==="
+          kubectl get deployments
+          
+          echo "=== Pod Status ==="
+          kubectl get pods
+          
+          echo "=== Service Status ==="
+          kubectl get services
+          
+          echo "=== ConfigMap Status ==="
+          kubectl get configmaps
+          
+          echo "=== Secret Status ==="
+          kubectl get secrets
+          
+          echo "=== StatefulSet Status ==="
+          kubectl get statefulsets
+          
+          echo "=== PVC Status ==="
+          kubectl get pvc
+          
+          echo "=== Ingress Status ==="
+          kubectl get ingress
+          
+          # Check if deployments are ready
+          echo "=== Checking Deployment Readiness ==="
+          kubectl get deployments -o wide
+          
+          # Show recent events
+          echo "=== Recent Events ==="
+          kubectl get events --sort-by=.metadata.creationTimestamp | tail -10
 
       - name: Cleanup resources
         if: always()
