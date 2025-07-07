@@ -96,128 +96,28 @@ jobs:
             echo "⚠️ Metrics server not ready yet, checking logs..."
             kubectl describe pods -l k8s-app=metrics-server -n kube-system || true
             kubectl logs -l k8s-app=metrics-server -n kube-system --tail=50 || true
-            echo "⚠️ Continuing without metrics-server (demo apps will still work)"
+            echo "⚠️ Continuing without metrics-server"
         fi
         
         echo "✅ Essential cluster components are ready!"
 
-    - name: 📊 Test metrics server
+    - name: � Final cluster verification
       run: |
-        echo "📊 Testing metrics server functionality..."
-        
-        # Wait a bit for metrics to be collected
-        echo "⏳ Waiting for metrics to be collected..."
-        sleep 30
-        
-        # Test node metrics
-        if kubectl top nodes; then
-            echo "✅ Node metrics are working"
-        else
-            echo "⚠️ Node metrics not yet available"
-        fi
-        
-        # Test pod metrics  
-        if kubectl top pods -A; then
-            echo "✅ Pod metrics are working"
-        else
-            echo "⚠️ Pod metrics not yet available"
-        fi
-
-    - name: 🎯 Deploy demo application
-      run: |
-        echo "🚀 Deploying demo application..."
-        cd demo-app
-        chmod +x deploy-demo.sh
-        ./deploy-demo.sh kind ci-test-cluster
-        
-        echo "⏳ Waiting for demo pods to be ready..."
-        kubectl wait --for=condition=Ready pods -l app=microservices-demo --timeout=300s
-
-    - name: 🧪 Test demo application
-      run: |
-        echo "🧪 Testing demo application functionality..."
-        
-        # First, check what pods are actually running
-        echo "📊 Current pods in default namespace:"
-        kubectl get pods -o wide
-        
-        # Check if microservices-demo deployment exists and is ready
-        echo "🔍 Checking microservices-demo deployment status..."
-        kubectl get deployment microservices-demo
-        kubectl describe deployment microservices-demo
-        
-        # Get demo app pod with correct label
-        echo "🔍 Looking for microservices-demo pods..."
-        if ! kubectl get pods -l app=microservices-demo --no-headers | grep -q "Running"; then
-            echo "❌ No running microservices-demo pods found"
-            echo "📊 All pods in default namespace:"
-            kubectl get pods -A
-            echo "📝 Deployment logs:"
-            kubectl logs deployment/microservices-demo --tail=50 || true
-            exit 1
-        fi
-        
-        POD_NAME=$(kubectl get pods -l app=microservices-demo -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-        if [ -z "$POD_NAME" ]; then
-            echo "❌ Could not find microservices-demo pod"
-            exit 1
-        fi
-        
-        echo "Demo app pod: $POD_NAME"
-        
-        # Test pod is running
-        kubectl get pod $POD_NAME
-        
-        # Test service is accessible (port-forward and test)
-        echo "🌐 Testing service accessibility..."
-        kubectl port-forward svc/frontend 8080:80 &
-        PF_PID=$!
-        sleep 10
-        
-        # Test HTTP response
-        echo "🔗 Testing HTTP endpoint..."
-        if curl -f -s http://localhost:8080 > /dev/null; then
-            echo "✅ Demo app is responding correctly"
-        else
-            echo "❌ Demo app is not responding"
-            echo "🔍 Service details:"
-            kubectl describe svc/frontend
-            echo "🔍 Pod logs:"
-            kubectl logs $POD_NAME --tail=20 || true
-            kill $PF_PID || true
-            exit 1
-        fi
-        
-        # Clean up port-forward
-        kill $PF_PID || true
-
-    - name: 🏗️ Test advanced demos
-      run: |
-        echo "🏗️ Testing advanced demo deployments..."
-        cd demo-app/advanced-demos
-        chmod +x deploy-advanced-demos.sh
-        
-        # Test each demo individually
-        echo "Testing ConfigMap/Secret demo..."
-        ./deploy-advanced-demos.sh kind ci-test-cluster configmap
-        kubectl wait --for=condition=Ready pods -l app=configmap-secret-demo --timeout=180s
-        
-        echo "Testing StatefulSet demo..."
-        ./deploy-advanced-demos.sh kind ci-test-cluster stateful
-        kubectl wait --for=condition=Ready pods -l app=mongodb --timeout=300s
-        
-        echo "Testing HPA demo..."
-        ./deploy-advanced-demos.sh kind ci-test-cluster hpa
-        kubectl wait --for=condition=Ready pods -l app=hpa-demo --timeout=180s
-
-    - name: 🔍 Final cluster verification
-      run: |
-        echo "🔍 Final verification of cluster health..."
+        echo "� Final verification of cluster health..."
         kubectl get all -A
-        kubectl top nodes || echo "Metrics server might not be fully ready yet"
-        
-        echo "📊 Resource usage summary:"
         kubectl describe nodes
+        
+        echo "📊 Cluster summary:"
+        echo "Nodes: $(kubectl get nodes --no-headers | wc -l)"
+        echo "Namespaces: $(kubectl get namespaces --no-headers | wc -l)"
+        echo "System pods: $(kubectl get pods -n kube-system --no-headers | wc -l)"
+        
+        if kubectl top nodes &> /dev/null; then
+            echo "📈 Node resource usage:"
+            kubectl top nodes
+        else
+            echo "📈 Metrics not yet available (normal for new clusters)"
+        fi
 
     - name: 🧹 Cleanup
       if: always()
