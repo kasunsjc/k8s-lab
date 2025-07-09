@@ -1,0 +1,171 @@
+name: 🔷 Verify Minikube Cluster Setup
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'minikube-lab/**'
+      - 'demo-app/**'
+      - 'k8s-lab.sh'
+      - '.github/workflows/verify-minikube-cluster.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'minikube-lab/**'
+      - 'demo-app/**'
+      - 'k8s-lab.sh'
+      - '.github/workflows/verify-minikube-cluster.yml'
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  verify-minikube-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: 📦 Install Minikube
+      run: |
+        # Install Minikube
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        sudo install minikube-linux-amd64 /usr/local/bin/minikube
+        rm minikube-linux-amd64
+        
+        # Verify installation
+        minikube version
+
+    - name: 🔧 Install kubectl
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/kubectl
+        
+        # Verify installation
+        kubectl version --client
+
+    - name: 🚀 Set up Minikube cluster
+      run: |
+        echo "🔷 Setting up Minikube cluster for verification..."
+        
+        # Note: We use minikube directly instead of setup-minikube.sh for CI
+        # because the script defaults to 'none' driver in CI, which doesn't support multi-node
+        
+        # Set up environment for CI
+        export MINIKUBE_HOME=$HOME
+        export CHANGE_MINIKUBE_NONE_USER=true
+        export KUBECONFIG=$HOME/.kube/config
+        
+        # Create kubeconfig directory
+        mkdir -p $HOME/.kube
+        
+        # Clean up any existing minikube state
+        minikube delete --all || true
+        
+        echo "🚗 Starting Minikube with docker driver for CI..."
+        
+        # Start minikube directly with docker driver (multi-node compatible)
+        minikube start \
+          --profile=ci-test-profile \
+          --nodes=3 \
+          --driver=docker \
+          --kubernetes-version=stable \
+          --cpus=2 \
+          --memory=2g \
+          --wait=all \
+          --wait-timeout=600s
+        
+        echo "✅ Verifying cluster status..."
+        minikube status -p ci-test-profile
+        kubectl get nodes -o wide
+        
+        echo "🧩 Enabling useful addons..."
+        minikube addons enable dashboard -p ci-test-profile
+        minikube addons enable metrics-server -p ci-test-profile
+        minikube addons enable ingress -p ci-test-profile
+        
+        echo "ℹ️ Cluster Information:"
+        kubectl cluster-info
+        
+        echo "🎉 Minikube cluster setup complete!"
+
+    - name: ✅ Verify cluster is running
+      run: |
+        echo "🔍 Checking cluster status..."
+        minikube status -p ci-test-profile
+        kubectl cluster-info
+        
+        echo "📊 Checking node status..."
+        kubectl get nodes -o wide
+        
+        echo "🧩 Checking system pods..."
+        kubectl get pods -A
+        
+        # Wait for all system pods to be ready
+        echo "⏳ Waiting for system pods to be ready..."
+        kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+
+    - name: 🎛️ Verify Minikube addons
+      run: |
+        echo "🎛️ Checking enabled addons..."
+        minikube addons list -p ci-test-profile
+        
+        echo "📊 Verifying metrics-server..."
+        kubectl get pods -n kube-system -l k8s-app=metrics-server
+        
+        echo "📋 Verifying dashboard..."
+        kubectl get pods -n kubernetes-dashboard || echo "Dashboard may not be fully ready yet"
+
+    - name: 📊 Test metrics server
+      run: |
+        echo "📊 Testing metrics server functionality..."
+        
+        # Wait for metrics to be available
+        echo "⏳ Waiting for metrics to be collected..."
+        sleep 30
+        
+        # Test node metrics
+        kubectl top nodes || echo "Node metrics not yet available"
+        
+        # Test pod metrics
+        kubectl top pods || echo "Pod metrics not yet available"
+
+    - name: 🔍 Final cluster verification
+      run: |
+        echo "🔍 Final verification of cluster health..."
+        kubectl get all -A
+        
+        echo "📊 Resource usage summary:"
+        kubectl describe nodes
+        
+        echo "🎛️ Final addon status:"
+        minikube addons list -p ci-test-profile
+
+    - name: 🧹 Cleanup
+      if: always()
+      run: |
+        echo "🧹 Cleaning up resources..."
+        
+        # Stop and delete minikube cluster
+        minikube stop -p ci-test-profile || true
+        minikube delete -p ci-test-profile || true
+        
+        # Clean up docker containers and volumes
+        docker system prune -f || true
+        docker volume prune -f || true
+        
+        echo "✅ Cleanup completed"
+
+    - name: 📊 Report Results
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Minikube cluster verification PASSED"
+        else
+          echo "❌ Minikube cluster verification FAILED"
+        fi

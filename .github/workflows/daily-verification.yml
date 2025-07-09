@@ -1,0 +1,64 @@
+name: 🚀 Daily Kubernetes Lab Verification
+
+on:
+  schedule:
+    # Run daily at 09:00 UTC
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of test to run'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+        - both
+        - kind
+        - minikube
+
+jobs:
+  verify-kind-lab:
+    if: ${{ github.event.inputs.test_type == 'both' || github.event.inputs.test_type == 'kind' || github.event.inputs.test_type == '' }}
+    uses: ./.github/workflows/verify-kind-cluster.yml
+
+  verify-minikube-lab:
+    if: ${{ github.event.inputs.test_type == 'both' || github.event.inputs.test_type == 'minikube' || github.event.inputs.test_type == '' }}
+    uses: ./.github/workflows/verify-minikube-cluster.yml
+
+  report-results:
+    needs: [verify-kind-lab, verify-minikube-lab]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: 📊 Generate Summary Report
+      run: |
+        echo "# 🚀 Kubernetes Lab Verification Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Kind Lab Results
+        if [ "${{ needs.verify-kind-lab.result }}" == "success" ]; then
+          echo "- 🔶 **Kind Lab**: ✅ PASSED" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.verify-kind-lab.result }}" == "failure" ]; then
+          echo "- 🔶 **Kind Lab**: ❌ FAILED" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.verify-kind-lab.result }}" == "skipped" ]; then
+          echo "- 🔶 **Kind Lab**: ⏭️ SKIPPED" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- 🔶 **Kind Lab**: ⚠️ CANCELLED" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Minikube Lab Results
+        if [ "${{ needs.verify-minikube-lab.result }}" == "success" ]; then
+          echo "- 🔷 **Minikube Lab**: ✅ PASSED" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.verify-minikube-lab.result }}" == "failure" ]; then
+          echo "- 🔷 **Minikube Lab**: ❌ FAILED" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.verify-minikube-lab.result }}" == "skipped" ]; then
+          echo "- 🔷 **Minikube Lab**: ⏭️ SKIPPED" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- 🔷 **Minikube Lab**: ⚠️ CANCELLED" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "🕐 **Test Run Time**: $(date -u)" >> $GITHUB_STEP_SUMMARY

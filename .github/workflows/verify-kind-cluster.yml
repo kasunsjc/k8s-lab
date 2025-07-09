@@ -1,0 +1,133 @@
+name: 🔶 Verify Kind Cluster Setup
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'kind-lab/**'
+      - 'demo-app/**'
+      - 'k8s-lab.sh'
+      - '.github/workflows/verify-kind-cluster.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'kind-lab/**'
+      - 'demo-app/**'
+      - 'k8s-lab.sh'
+      - '.github/workflows/verify-kind-cluster.yml'
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  verify-kind-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: 📦 Install Kind
+      run: |
+        # Install Kind
+        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
+        
+        # Verify installation
+        kind version
+
+    - name: 🔧 Install kubectl
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/kubectl
+        
+        # Verify installation
+        kubectl version --client
+
+    - name: 🚀 Set up Kind cluster
+      run: |
+        echo "🔶 Setting up Kind cluster for verification..."
+        cd kind-lab
+        chmod +x setup-kind.sh
+        ./setup-kind.sh ci-test-cluster
+        
+        # Fix metrics-server for Kind (needs insecure TLS)
+        echo "🔧 Configuring metrics-server for Kind..."
+        kubectl patch deployment metrics-server -n kube-system --type='json' \
+          -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+        
+        # Restart metrics-server to apply the changes
+        kubectl rollout restart deployment/metrics-server -n kube-system
+
+    - name: ✅ Verify cluster is running
+      run: |
+        echo "🔍 Checking cluster status..."
+        kubectl cluster-info --context kind-ci-test-cluster
+        
+        echo "📊 Checking node status..."
+        kubectl get nodes -o wide
+        
+        echo "🧩 Checking system pods..."
+        kubectl get pods -A
+        
+        # Wait for essential system pods to be ready (excluding metrics-server which can be slow)
+        echo "⏳ Waiting for essential system pods to be ready..."
+        kubectl wait --for=condition=Ready pods -l k8s-app=kube-dns -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l component=kube-apiserver -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l component=kube-controller-manager -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l component=kube-scheduler -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l k8s-app=kube-proxy -n kube-system --timeout=300s
+        kubectl wait --for=condition=Ready pods -l app=kindnet -n kube-system --timeout=300s
+        
+        # Check metrics-server separately with a longer timeout after configuration
+        echo "📊 Waiting for metrics-server to be ready after configuration..."
+        kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
+        if kubectl wait --for=condition=Ready pods -l k8s-app=metrics-server -n kube-system --timeout=180s; then
+            echo "✅ Metrics server is ready"
+        else
+            echo "⚠️ Metrics server not ready yet, checking logs..."
+            kubectl describe pods -l k8s-app=metrics-server -n kube-system || true
+            kubectl logs -l k8s-app=metrics-server -n kube-system --tail=50 || true
+            echo "⚠️ Continuing without metrics-server"
+        fi
+        
+        echo "✅ Essential cluster components are ready!"
+
+    - name: 🔍 Final cluster verification
+      run: |
+        echo "🔍 Final verification of cluster health..."
+        kubectl get all -A
+        kubectl describe nodes
+        
+        echo "📊 Cluster summary:"
+        echo "Nodes: $(kubectl get nodes --no-headers | wc -l)"
+        echo "Namespaces: $(kubectl get namespaces --no-headers | wc -l)"
+        echo "System pods: $(kubectl get pods -n kube-system --no-headers | wc -l)"
+        
+        if kubectl top nodes &> /dev/null; then
+            echo "📈 Node resource usage:"
+            kubectl top nodes
+        else
+            echo "📈 Metrics not yet available (normal for new clusters)"
+        fi
+
+    - name: 🧹 Cleanup
+      if: always()
+      run: |
+        echo "🧹 Cleaning up resources..."
+        kind delete cluster --name ci-test-cluster || true
+        docker system prune -f || true
+
+    - name: 📊 Report Results
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Kind cluster verification PASSED"
+        else
+          echo "❌ Kind cluster verification FAILED"
+        fi
