@@ -26,11 +26,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Setup PowerShell
+    - name: Setup PowerShell Environment
       shell: pwsh
       run: |
         Write-Host "PowerShell version: $($PSVersionTable.PSVersion)" -ForegroundColor Cyan
         Write-Host "OS: $([System.Environment]::OSVersion.VersionString)" -ForegroundColor Cyan
+        Write-Host "Execution Policy: $(Get-ExecutionPolicy)" -ForegroundColor Cyan
         
     - name: Test script syntax
       shell: pwsh

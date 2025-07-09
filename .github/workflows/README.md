@@ -5,9 +5,11 @@ This directory contains GitHub Actions workflows for testing the PowerShell K8s 
 ## Workflows
 
 ### 1. test-powershell-lab-simple.yml
+
 A streamlined workflow that focuses on essential testing without requiring actual cluster creation.
 
 **What it tests:**
+
 - PowerShell script syntax validation
 - Basic command functionality (help, status, error handling)
 - File structure validation
@@ -15,20 +17,23 @@ A streamlined workflow that focuses on essential testing without requiring actua
 - Comprehensive test suite execution
 
 **Triggers:**
+
 - Push to `main` or `develop` branches
 - Pull requests to `main` branch
 - Manual dispatch with test type selection
-- Scheduled runs (disabled by default)
 
 **Test Types:**
+
 - `syntax` - Basic syntax validation only
 - `basic` - Syntax + basic commands + dependencies (default)
 - `full` - All tests including cluster operations (for local use)
 
-### 2. test-powershell-lab.yml
-A comprehensive workflow that includes actual cluster testing (currently disabled for CI).
+### 2. test-powershell-lab.yml (Disabled)
+
+A comprehensive workflow that includes actual cluster testing (currently disabled for CI due to resource constraints).
 
 **Features:**
+
 - Full Minikube and Kind cluster testing
 - Multi-node cluster validation
 - Performance benchmarking
@@ -153,6 +158,11 @@ Modify test behavior in `test-lab.ps1`:
 3. **Path issues**
    - Ensure scripts are run from the k8s-lab root directory
    - Use absolute paths when necessary
+
+4. **"Unable to resolve action actions/setup-powershell@v1" error**
+   - This action doesn't exist - PowerShell is pre-installed on Windows runners
+   - The workflow has been fixed to use built-in PowerShell capabilities
+   - Use `shell: pwsh` instead of trying to setup PowerShell
 
 ### Debugging Failed Tests
 
