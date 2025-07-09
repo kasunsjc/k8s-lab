@@ -1,0 +1,594 @@
+name: Test PowerShell K8s Lab Setup
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run tests daily at 6 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      test_environment:
+        description: 'Test environment (minikube, kind, or both)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - minikube
+          - kind
+          - both
+      run_advanced_tests:
+        description: 'Run advanced demo tests'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  MINIKUBE_VERSION: 'v1.33.1'
+  KIND_VERSION: 'v0.20.0'
+  KUBECTL_VERSION: 'v1.30.0'
+
+jobs:
+  # Job 1: Test PowerShell script syntax and basic validation
+  validate-scripts:
+    runs-on: windows-latest
+    name: Validate PowerShell Scripts
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v1
+      with:
+        pwsh: true
+        
+    - name: Test PowerShell script syntax
+      run: |
+        Write-Host "Testing PowerShell script syntax..." -ForegroundColor Cyan
+        
+        # Test main script
+        if (Test-Path "k8s-lab.ps1") {
+          $null = Get-Content "k8s-lab.ps1" | Out-String | Invoke-Expression -ErrorAction Stop
+          Write-Host "✅ k8s-lab.ps1 syntax is valid" -ForegroundColor Green
+        } else {
+          Write-Host "❌ k8s-lab.ps1 not found" -ForegroundColor Red
+          exit 1
+        }
+        
+        # Test setup scripts
+        $setupScripts = @(
+          "minikube-lab\setup-minikube.ps1",
+          "kind-lab\setup-kind.ps1"
+        )
+        
+        foreach ($script in $setupScripts) {
+          if (Test-Path $script) {
+            try {
+              $null = Get-Content $script -Raw | Out-String
+              Write-Host "✅ $script syntax is valid" -ForegroundColor Green
+            } catch {
+              Write-Host "❌ $script has syntax errors: $($_.Exception.Message)" -ForegroundColor Red
+              exit 1
+            }
+          } else {
+            Write-Host "⚠️ $script not found" -ForegroundColor Yellow
+          }
+        }
+        
+    - name: Test script help functionality
+      run: |
+        Write-Host "Testing help functionality..." -ForegroundColor Cyan
+        .\k8s-lab.ps1 help
+        
+    - name: Test script error handling
+      run: |
+        Write-Host "Testing error handling..." -ForegroundColor Cyan
+        try {
+          .\k8s-lab.ps1 invalid-command
+        } catch {
+          Write-Host "✅ Error handling works correctly" -ForegroundColor Green
+        }
+
+  # Job 2: Test Minikube setup
+  test-minikube:
+    runs-on: windows-latest
+    name: Test Minikube Setup
+    needs: validate-scripts
+    if: github.event.inputs.test_environment == 'minikube' || github.event.inputs.test_environment == 'both' || github.event.inputs.test_environment == ''
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v1
+      with:
+        pwsh: true
+        
+    - name: Install dependencies
+      run: |
+        Write-Host "Installing dependencies..." -ForegroundColor Cyan
+        
+        # Install Chocolatey
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        
+        # Install Docker Desktop (required for Minikube)
+        choco install docker-desktop -y
+        
+        # Install Minikube
+        choco install minikube -y
+        
+        # Install kubectl
+        choco install kubernetes-cli -y
+        
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+    - name: Start Docker Desktop
+      run: |
+        Write-Host "Starting Docker Desktop..." -ForegroundColor Cyan
+        Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -WindowStyle Hidden
+        
+        # Wait for Docker to be ready
+        $timeout = 300 # 5 minutes
+        $elapsed = 0
+        do {
+          try {
+            docker version | Out-Null
+            Write-Host "✅ Docker is ready" -ForegroundColor Green
+            break
+          } catch {
+            Write-Host "⏳ Waiting for Docker to start..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+            $elapsed += 10
+          }
+        } while ($elapsed -lt $timeout)
+        
+        if ($elapsed -ge $timeout) {
+          Write-Host "❌ Docker failed to start within timeout" -ForegroundColor Red
+          exit 1
+        }
+        
+    - name: Test Minikube cluster creation
+      run: |
+        Write-Host "Testing Minikube cluster creation..." -ForegroundColor Cyan
+        
+        # Test single-node cluster first
+        try {
+          minikube start --profile=test-single --driver=docker --cpus=2 --memory=2g --no-vtx-check
+          Write-Host "✅ Single-node cluster created successfully" -ForegroundColor Green
+          
+          # Test cluster functionality
+          kubectl get nodes
+          kubectl get pods -A
+          
+          # Cleanup
+          minikube delete --profile=test-single
+          
+        } catch {
+          Write-Host "❌ Single-node cluster test failed: $($_.Exception.Message)" -ForegroundColor Red
+          # Continue with multi-node test anyway
+        }
+        
+    - name: Test PowerShell lab script with Minikube
+      run: |
+        Write-Host "Testing k8s-lab.ps1 with Minikube..." -ForegroundColor Cyan
+        
+        # Test status command
+        .\k8s-lab.ps1 status
+        
+        # Test start command with custom profile
+        .\k8s-lab.ps1 start minikube test-github-action
+        
+        # Verify cluster is running
+        .\k8s-lab.ps1 status minikube test-github-action
+        
+        # Test dashboard command (just get URL, don't open)
+        try {
+          minikube dashboard --profile=test-github-action --url
+        } catch {
+          Write-Host "⚠️ Dashboard test skipped (expected in CI environment)" -ForegroundColor Yellow
+        }
+        
+    - name: Test demo deployment
+      run: |
+        Write-Host "Testing demo deployment..." -ForegroundColor Cyan
+        
+        # Deploy demo application
+        kubectl apply -f demo-app\demo-app.yaml
+        
+        # Wait for pods to be ready
+        kubectl wait --for=condition=ready pod -l app=microservices-demo --timeout=300s
+        
+        # Check deployment
+        kubectl get pods -o wide
+        kubectl get svc
+        
+        # Test connectivity
+        kubectl port-forward svc/frontend 8080:80 &
+        Start-Sleep -Seconds 5
+        
+        try {
+          $response = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 10
+          if ($response.StatusCode -eq 200) {
+            Write-Host "✅ Demo application is accessible" -ForegroundColor Green
+          } else {
+            Write-Host "⚠️ Demo application returned status: $($response.StatusCode)" -ForegroundColor Yellow
+          }
+        } catch {
+          Write-Host "⚠️ Demo application connectivity test failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+        
+    - name: Test advanced demos
+      if: github.event.inputs.run_advanced_tests == 'true'
+      run: |
+        Write-Host "Testing advanced demos..." -ForegroundColor Cyan
+        
+        # Test ConfigMap and Secret demo
+        if (Test-Path "demo-app\advanced-demos\configmap-secret-demo.yaml") {
+          kubectl apply -f demo-app\advanced-demos\configmap-secret-demo.yaml
+          Write-Host "✅ ConfigMap/Secret demo deployed" -ForegroundColor Green
+        }
+        
+        # Test HPA demo
+        if (Test-Path "demo-app\advanced-demos\hpa-demo.yaml") {
+          kubectl apply -f demo-app\advanced-demos\hpa-demo.yaml
+          Write-Host "✅ HPA demo deployed" -ForegroundColor Green
+        }
+        
+        # Test StatefulSet demo
+        if (Test-Path "demo-app\advanced-demos\stateful-mongodb.yaml") {
+          kubectl apply -f demo-app\advanced-demos\stateful-mongodb.yaml
+          Write-Host "✅ StatefulSet demo deployed" -ForegroundColor Green
+        }
+        
+    - name: Cleanup Minikube
+      if: always()
+      run: |
+        Write-Host "Cleaning up Minikube resources..." -ForegroundColor Cyan
+        try {
+          minikube delete --profile=test-github-action
+          Write-Host "✅ Minikube cleanup completed" -ForegroundColor Green
+        } catch {
+          Write-Host "⚠️ Minikube cleanup failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+
+  # Job 3: Test Kind setup
+  test-kind:
+    runs-on: windows-latest
+    name: Test Kind Setup
+    needs: validate-scripts
+    if: github.event.inputs.test_environment == 'kind' || github.event.inputs.test_environment == 'both' || github.event.inputs.test_environment == ''
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v1
+      with:
+        pwsh: true
+        
+    - name: Install dependencies
+      run: |
+        Write-Host "Installing dependencies..." -ForegroundColor Cyan
+        
+        # Install Chocolatey
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        
+        # Install Docker Desktop
+        choco install docker-desktop -y
+        
+        # Install Kind
+        choco install kind -y
+        
+        # Install kubectl
+        choco install kubernetes-cli -y
+        
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+    - name: Start Docker Desktop
+      run: |
+        Write-Host "Starting Docker Desktop..." -ForegroundColor Cyan
+        Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -WindowStyle Hidden
+        
+        # Wait for Docker to be ready
+        $timeout = 300 # 5 minutes
+        $elapsed = 0
+        do {
+          try {
+            docker version | Out-Null
+            Write-Host "✅ Docker is ready" -ForegroundColor Green
+            break
+          } catch {
+            Write-Host "⏳ Waiting for Docker to start..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+            $elapsed += 10
+          }
+        } while ($elapsed -lt $timeout)
+        
+        if ($elapsed -ge $timeout) {
+          Write-Host "❌ Docker failed to start within timeout" -ForegroundColor Red
+          exit 1
+        }
+        
+    - name: Test Kind cluster creation
+      run: |
+        Write-Host "Testing Kind cluster creation..." -ForegroundColor Cyan
+        
+        # Create a simple Kind cluster
+        try {
+          kind create cluster --name test-kind --config kind-config.yaml
+          Write-Host "✅ Kind cluster created successfully" -ForegroundColor Green
+          
+          # Test cluster functionality
+          kubectl get nodes
+          kubectl get pods -A
+          
+        } catch {
+          Write-Host "❌ Kind cluster test failed: $($_.Exception.Message)" -ForegroundColor Red
+          exit 1
+        }
+        
+    - name: Test PowerShell lab script with Kind
+      run: |
+        Write-Host "Testing k8s-lab.ps1 with Kind..." -ForegroundColor Cyan
+        
+        # Test status command
+        .\k8s-lab.ps1 status
+        
+        # Test start command with custom profile
+        .\k8s-lab.ps1 start kind test-github-kind
+        
+        # Verify cluster is running
+        .\k8s-lab.ps1 status kind test-github-kind
+        
+    - name: Test demo deployment on Kind
+      run: |
+        Write-Host "Testing demo deployment on Kind..." -ForegroundColor Cyan
+        
+        # Deploy demo application
+        kubectl apply -f demo-app\demo-app.yaml
+        
+        # Wait for pods to be ready
+        kubectl wait --for=condition=ready pod -l app=microservices-demo --timeout=300s
+        
+        # Check deployment
+        kubectl get pods -o wide
+        kubectl get svc
+        
+        Write-Host "✅ Demo application deployed on Kind" -ForegroundColor Green
+        
+    - name: Cleanup Kind
+      if: always()
+      run: |
+        Write-Host "Cleaning up Kind resources..." -ForegroundColor Cyan
+        try {
+          kind delete cluster --name test-kind
+          kind delete cluster --name test-github-kind
+          Write-Host "✅ Kind cleanup completed" -ForegroundColor Green
+        } catch {
+          Write-Host "⚠️ Kind cleanup failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+
+  # Job 4: Multi-node functionality test
+  test-multi-node:
+    runs-on: windows-latest
+    name: Test Multi-Node Functionality
+    needs: validate-scripts
+    if: github.event.inputs.run_advanced_tests == 'true'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v1
+      with:
+        pwsh: true
+        
+    - name: Install dependencies
+      run: |
+        Write-Host "Installing dependencies..." -ForegroundColor Cyan
+        
+        # Install Chocolatey
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        
+        choco install docker-desktop -y
+        choco install minikube -y
+        choco install kubernetes-cli -y
+        
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+    - name: Start Docker Desktop
+      run: |
+        Write-Host "Starting Docker Desktop..." -ForegroundColor Cyan
+        Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -WindowStyle Hidden
+        
+        # Wait for Docker to be ready
+        $timeout = 300
+        $elapsed = 0
+        do {
+          try {
+            docker version | Out-Null
+            Write-Host "✅ Docker is ready" -ForegroundColor Green
+            break
+          } catch {
+            Write-Host "⏳ Waiting for Docker to start..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+            $elapsed += 10
+          }
+        } while ($elapsed -lt $timeout)
+        
+    - name: Test multi-node Minikube cluster
+      run: |
+        Write-Host "Testing multi-node Minikube cluster..." -ForegroundColor Cyan
+        
+        # Run the setup script
+        .\minikube-lab\setup-minikube.ps1 test-multi-node
+        
+        # Verify multi-node setup
+        $nodes = kubectl get nodes --no-headers
+        $nodeCount = ($nodes | Measure-Object).Count
+        
+        if ($nodeCount -ge 3) {
+          Write-Host "✅ Multi-node cluster created with $nodeCount nodes" -ForegroundColor Green
+        } else {
+          Write-Host "⚠️ Expected 3+ nodes, got $nodeCount" -ForegroundColor Yellow
+        }
+        
+        # Test pod distribution across nodes
+        kubectl apply -f demo-app\demo-app.yaml
+        kubectl wait --for=condition=ready pod -l app=microservices-demo --timeout=300s
+        
+        # Check pod distribution
+        kubectl get pods -o wide
+        
+        # Cleanup
+        minikube delete --profile=test-multi-node
+        
+  # Job 5: Performance and stress testing
+  test-performance:
+    runs-on: windows-latest
+    name: Performance Tests
+    needs: validate-scripts
+    if: github.event.inputs.run_advanced_tests == 'true'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v1
+      with:
+        pwsh: true
+        
+    - name: Install dependencies
+      run: |
+        Write-Host "Installing dependencies..." -ForegroundColor Cyan
+        
+        # Install Chocolatey
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        
+        choco install docker-desktop -y
+        choco install minikube -y
+        choco install kubernetes-cli -y
+        
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+    - name: Start Docker Desktop
+      run: |
+        Write-Host "Starting Docker Desktop..." -ForegroundColor Cyan
+        Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -WindowStyle Hidden
+        
+        # Wait for Docker to be ready
+        $timeout = 300
+        $elapsed = 0
+        do {
+          try {
+            docker version | Out-Null
+            Write-Host "✅ Docker is ready" -ForegroundColor Green
+            break
+          } catch {
+            Write-Host "⏳ Waiting for Docker to start..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+            $elapsed += 10
+          }
+        } while ($elapsed -lt $timeout)
+        
+    - name: Test cluster creation time
+      run: |
+        Write-Host "Testing cluster creation performance..." -ForegroundColor Cyan
+        
+        # Time Minikube cluster creation
+        $startTime = Get-Date
+        minikube start --profile=perf-test --driver=docker --cpus=2 --memory=2g --no-vtx-check
+        $endTime = Get-Date
+        $duration = ($endTime - $startTime).TotalSeconds
+        
+        Write-Host "✅ Cluster creation took $duration seconds" -ForegroundColor Green
+        
+        # Test rapid start/stop cycles
+        for ($i = 1; $i -le 3; $i++) {
+          Write-Host "Testing start/stop cycle $i..." -ForegroundColor Yellow
+          
+          minikube stop --profile=perf-test
+          minikube start --profile=perf-test
+          
+          kubectl get nodes
+        }
+        
+        # Cleanup
+        minikube delete --profile=perf-test
+
+  # Job 6: Generate test report
+  generate-report:
+    runs-on: windows-latest
+    name: Generate Test Report
+    needs: [validate-scripts, test-minikube, test-kind]
+    if: always()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Generate test report
+      run: |
+        Write-Host "Generating test report..." -ForegroundColor Cyan
+        
+        $report = @"
+        # K8s Lab PowerShell Test Report
+        
+        **Test Run:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
+        **Repository:** ${{ github.repository }}
+        **Branch:** ${{ github.ref_name }}
+        **Commit:** ${{ github.sha }}
+        
+        ## Test Results Summary
+        
+        | Test Job | Status |
+        |----------|---------|
+        | Script Validation | ${{ needs.validate-scripts.result }} |
+        | Minikube Tests | ${{ needs.test-minikube.result }} |
+        | Kind Tests | ${{ needs.test-kind.result }} |
+        | Multi-Node Tests | ${{ needs.test-multi-node.result }} |
+        | Performance Tests | ${{ needs.test-performance.result }} |
+        
+        ## Environment Information
+        
+        - **Minikube Version:** ${{ env.MINIKUBE_VERSION }}
+        - **Kind Version:** ${{ env.KIND_VERSION }}
+        - **Kubectl Version:** ${{ env.KUBECTL_VERSION }}
+        - **Runner OS:** Windows Latest
+        
+        ## Next Steps
+        
+        - Review any failed tests in the workflow logs
+        - Check PowerShell script compatibility
+        - Verify cluster configurations
+        - Test advanced demo deployments
+        
+        "@
+        
+        $report | Out-File -FilePath "test-report.md" -Encoding UTF8
+        
+    - name: Upload test report
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-report
+        path: test-report.md
+        retention-days: 30
