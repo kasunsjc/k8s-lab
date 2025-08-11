@@ -1,0 +1,80 @@
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: default
+spec:
+  mtls:
+    mode: STRICT
+---
+# Authorization policy to allow only GET requests to productpage
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: productpage-viewer
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: productpage
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"]
+  - to:
+    - operation:
+        methods: ["GET"]
+---
+# Authorization policy for reviews service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: reviews-policy
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: reviews
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/default/sa/bookinfo-productpage"]
+  - to:
+    - operation:
+        methods: ["GET"]
+---
+# Authorization policy for ratings service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: ratings-policy
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: ratings
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/default/sa/bookinfo-reviews"]
+  - to:
+    - operation:
+        methods: ["GET"]
+---
+# Authorization policy for details service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: details-policy
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: details
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/default/sa/bookinfo-productpage"]
+  - to:
+    - operation:
+        methods: ["GET"]

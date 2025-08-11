@@ -1,0 +1,212 @@
+name: Istio Demo Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'demo-app/istio-demo/**'
+      - '.github/workflows/istio-demo-tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'demo-app/istio-demo/**'
+  workflow_dispatch:
+    inputs:
+      cluster_type:
+        description: 'Cluster type to test with'
+        required: false
+        default: 'kind'
+        type: choice
+        options:
+        - kind
+        - minikube
+
+env:
+  CLUSTER_NAME: istio-demo-test
+
+jobs:
+  test-istio-demo:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cluster_type: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cluster_type == 'kind' && fromJSON('["kind"]') || github.event_name == 'workflow_dispatch' && github.event.inputs.cluster_type == 'minikube' && fromJSON('["minikube"]') || fromJSON('["kind"]') }}
+      fail-fast: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      - name: Setup KinD cluster
+        if: matrix.cluster_type == 'kind'
+        uses: helm/kind-action@v1.8.0
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          config: kind-lab/kind-config.yaml
+          wait: 120s
+
+      - name: Setup Minikube cluster
+        if: matrix.cluster_type == 'minikube'
+        uses: medyagh/setup-minikube@master
+        with:
+          minikube-version: 'latest'
+          driver: docker
+          container-runtime: containerd
+          cni: calico
+
+      - name: Configure Minikube profile
+        if: matrix.cluster_type == 'minikube'
+        run: |
+          # Stop default minikube and start with our profile name
+          minikube stop || true
+          minikube start --profile=${{ env.CLUSTER_NAME }} --driver=docker --container-runtime=containerd
+          minikube profile ${{ env.CLUSTER_NAME }}
+          
+          # Wait for cluster to be ready
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
+      - name: Show cluster info
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+          kubectl version --client
+          
+          # For minikube, show profile information
+          if [ "${{ matrix.cluster_type }}" == "minikube" ]; then
+            echo "=== Minikube Profile Information ==="
+            minikube profile list
+            echo "Current profile: $(minikube profile)"
+          fi
+
+      - name: Deploy Istio service mesh
+        working-directory: demo-app/istio-demo
+        run: |
+          echo "Starting Istio deployment..."
+          chmod +x ./deploy-istio.sh
+          ./deploy-istio.sh
+          
+          echo "Waiting for all components to be ready..."
+          sleep 60
+
+      - name: Run Istio tests
+        working-directory: demo-app/istio-demo
+        run: |
+          echo "Running comprehensive Istio tests..."
+          chmod +x ./test-istio.sh
+          ./test-istio.sh
+
+      - name: Test basic application access
+        working-directory: demo-app/istio-demo
+        run: |
+          echo "Testing application access via port-forward..."
+          kubectl port-forward -n istio-system svc/istio-ingressgateway 8080:80 &
+          PF_PID=$!
+          sleep 10
+          
+          echo "Testing productpage endpoint..."
+          if curl -f -s http://localhost:8080/productpage | grep -q "Book Reviews"; then
+            echo "✅ Application is accessible and responding correctly"
+          else
+            echo "❌ Application test failed"
+            exit 1
+          fi
+          
+          # Cleanup port forward
+          kill $PF_PID || true
+
+      - name: Test traffic management
+        working-directory: demo-app/istio-demo
+        run: |
+          echo "Testing traffic management features..."
+          
+          # Generate some traffic
+          chmod +x ./generate-traffic.sh
+          timeout 60s ./generate-traffic.sh || echo "Traffic generation completed"
+          
+          echo "Checking VirtualServices..."
+          kubectl get virtualservices
+          
+          echo "Checking DestinationRules..."
+          kubectl get destinationrules
+
+      - name: Deploy advanced features
+        working-directory: demo-app/istio-demo
+        run: |
+          echo "Deploying advanced Istio features..."
+          
+          # Deploy security policies
+          kubectl apply -f security-policies.yaml
+          
+          # Deploy fault injection
+          kubectl apply -f advanced-examples/fault-injection.yaml
+          
+          # Deploy canary deployment
+          kubectl apply -f advanced-examples/canary-10-percent.yaml
+          
+          echo "Waiting for policies to be applied..."
+          sleep 30
+
+      - name: Test observability tools
+        run: |
+          echo "Testing observability components..."
+          
+          # Check if Kiali is running
+          if kubectl get pod -n istio-system -l app=kiali | grep -q Running; then
+            echo "✅ Kiali is running"
+          else
+            echo "⚠️ Kiali is not running"
+          fi
+          
+          # Check if Jaeger is running
+          if kubectl get pod -n istio-system -l app=jaeger | grep -q Running; then
+            echo "✅ Jaeger is running"
+          else
+            echo "⚠️ Jaeger is not running"
+          fi
+          
+          # Check if Grafana is running
+          if kubectl get pod -n istio-system -l app=grafana | grep -q Running; then
+            echo "✅ Grafana is running"
+          else
+            echo "⚠️ Grafana is not running"
+          fi
+
+      - name: Test mTLS and security
+        run: |
+          echo "Testing mTLS and security policies..."
+          
+          # Check PeerAuthentication
+          if kubectl get peerauthentication default; then
+            echo "✅ PeerAuthentication policy exists"
+          else
+            echo "⚠️ PeerAuthentication policy not found"
+          fi
+          
+          # Check AuthorizationPolicies
+          AUTH_POLICIES=$(kubectl get authorizationpolicies --no-headers | wc -l)
+          echo "Found $AUTH_POLICIES authorization policies"
+
+      - name: Cleanup resources
+        if: always()
+        working-directory: demo-app/istio-demo
+        run: |
+          echo "Cleaning up Istio demo resources..."
+          chmod +x ./cleanup-istio.sh
+          echo "y" | ./cleanup-istio.sh || echo "Cleanup completed with some errors"
+
+      - name: Final status check
+        if: always()
+        run: |
+          echo "=== Final Cluster Status ==="
+          kubectl get all --all-namespaces | head -20
+          echo "=== Recent Events ==="
+          kubectl get events --sort-by=.metadata.creationTimestamp | tail -10

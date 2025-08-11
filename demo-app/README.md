@@ -1,12 +1,38 @@
-# 🚢 Demo Application
+# 🚢 Demo Applications
 
-This directory contains a demo application that can be deployed to test either the Minikube or Kind clusters.
+This directory contains multiple demo applications that can be deployed to test Kubernetes clusters.
 
 ## 📋 What's Included
 
+### Basic Demo Application
 - `demo-app.yaml`: A simplified Google Microservices Demo application (Online Boutique)
 - `k8s-dashboard.yaml`: Kubernetes Dashboard admin user configuration
 - `deploy-demo.sh`: A script to deploy the demo application to either Minikube or Kind
+
+### Advanced Demos
+- `advanced-demos/`: ConfigMap, Secret, StatefulSet, and HPA examples
+- `monitoring-demo/`: Prometheus and Grafana monitoring stack
+- `istio-demo/`: Complete Istio service mesh demonstration
+
+### 🕸️ Istio Service Mesh Demo
+
+The `istio-demo/` directory contains a comprehensive Istio service mesh demonstration featuring:
+
+- **Complete Istio installation via Helm**
+- **BookInfo sample application** (polyglot microservices)
+- **Traffic management** (canary deployments, A/B testing)
+- **Security features** (mTLS, authorization policies)
+- **Observability tools** (Kiali, Jaeger, Grafana, Prometheus)
+- **Advanced patterns** (circuit breakers, fault injection)
+
+Quick start:
+```bash
+cd istio-demo
+./deploy-istio.sh
+./test-istio.sh
+```
+
+For more details, see [istio-demo/README.md](istio-demo/README.md)
 
 ## 🚀 How to Deploy
 
