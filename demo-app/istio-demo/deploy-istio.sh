@@ -92,7 +92,7 @@ install_istio_discovery() {
 }
 
 install_istio_gateway() {
-    print_status "Installing Istio Ingress Gateway..."
+    print_status "Installing Istio Gateway..."
     helm upgrade --install istio-ingressgateway istio/gateway \
         -n $ISTIO_NAMESPACE \
         --version $ISTIO_VERSION \
@@ -102,7 +102,7 @@ install_istio_gateway() {
         --set service.ports[0].name=http2 \
         --set service.ports[1].port=443 \
         --set service.ports[1].name=https
-    print_success "Istio Ingress Gateway installed"
+    print_success "Istio Gateway installed"
 }
 
 wait_for_istio() {

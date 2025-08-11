@@ -157,15 +157,22 @@ test_application_connectivity() {
         print_warning "LoadBalancer IP not available, testing with port-forward..."
         kubectl port-forward -n $ISTIO_NAMESPACE svc/istio-ingressgateway 8080:80 &
         local pf_pid=$!
-        sleep 5
-        
+
+        # Wait for port-forward to be ready (max 15 seconds)
+        for i in {1..15}; do
+            if nc -z localhost 8080; then
+                break
+            fi
+            sleep 1
+        done
+
         if curl -s -f -o /dev/null "http://localhost:8080/productpage"; then
             print_success "Application is accessible via port-forward"
         else
             print_error "Application is not accessible via port-forward"
             ((FAILED_TESTS++))
         fi
-        
+
         kill $pf_pid 2>/dev/null || true
     else
         if curl -s -f -o /dev/null "http://$ingress_host:$ingress_port/productpage"; then

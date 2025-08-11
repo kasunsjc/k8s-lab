@@ -91,7 +91,11 @@ print_status "Testing HTTPBin service..."
 # Test HTTPBin service
 echo "Testing circuit breaker with HTTPBin..."
 for i in {1..10}; do
-    kubectl exec -it $(kubectl get pod -l app=httpbin -o jsonpath='{.items[0].metadata.name}') -c httpbin -- curl -s -o /dev/null -w "%{http_code}" http://httpbin:8000/delay/1 || echo "Circuit breaker triggered"
+    if [ -t 1 ]; then
+        kubectl exec -it $(kubectl get pod -l app=httpbin -o jsonpath='{.items[0].metadata.name}') -c httpbin -- curl -s -o /dev/null -w "%{http_code}" http://httpbin:8000/delay/1 || echo "Circuit breaker triggered"
+    else
+        kubectl exec -i $(kubectl get pod -l app=httpbin -o jsonpath='{.items[0].metadata.name}') -c httpbin -- curl -s -o /dev/null -w "%{http_code}" http://httpbin:8000/delay/1 || echo "Circuit breaker triggered"
+    fi
     echo -n "."
     sleep 0.2
 done

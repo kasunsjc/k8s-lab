@@ -20,6 +20,7 @@ spec:
   rules:
   - from:
     - source:
+        # NOTE: Replace 'istio-ingressgateway-service-account' with your actual ingress gateway service account name if different.
         principals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"]
   - to:
     - operation:

@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        cluster_type: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cluster_type == 'kind' && fromJSON('["kind"]') || github.event_name == 'workflow_dispatch' && github.event.inputs.cluster_type == 'minikube' && fromJSON('["minikube"]') || fromJSON('["kind"]') }}
+        cluster_type: [kind, minikube]
       fail-fast: false
     
     steps:
