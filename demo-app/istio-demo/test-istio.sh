@@ -212,10 +212,22 @@ test_mtls() {
     local productpage_pod=$(kubectl get pod -l app=productpage -n $BOOKINFO_NAMESPACE -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     
     if [ -n "$productpage_pod" ]; then
-        if kubectl exec $productpage_pod -n $BOOKINFO_NAMESPACE -c productpage -- curl -s -f -o /dev/null http://details:9080/details/123; then
-            print_success "Inter-service communication works (mTLS likely enabled)"
+        # Check if pod is Running and Ready
+        local pod_status=$(kubectl get pod $productpage_pod -n $BOOKINFO_NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        local pod_ready=$(kubectl get pod $productpage_pod -n $BOOKINFO_NAMESPACE -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "")
+        if [ "$pod_status" != "Running" ] || [ "$pod_ready" != "true" ]; then
+            print_warning "Productpage pod is not ready (status: $pod_status, ready: $pod_ready). Skipping mTLS test."
         else
-            print_warning "Inter-service communication test failed"
+            # Run curl and capture output and exit code
+            local exec_output
+            exec_output=$(kubectl exec $productpage_pod -n $BOOKINFO_NAMESPACE -c productpage -- curl -s -f -o /dev/null http://details:9080/details/123 2>&1)
+            local exec_exit_code=$?
+            if [ $exec_exit_code -eq 0 ]; then
+                print_success "Inter-service communication works (mTLS likely enabled)"
+            else
+                print_warning "Inter-service communication test failed. Error output:"
+                echo -e "${YELLOW}$exec_output${NC}"
+            fi
         fi
     else
         print_warning "Could not find productpage pod for mTLS test"
