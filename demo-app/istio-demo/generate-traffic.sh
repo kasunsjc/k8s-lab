@@ -27,12 +27,20 @@ ISTIO_NAMESPACE="istio-system"
 print_status "Starting traffic generation for BookInfo application..."
 
 # Check if the gateway is accessible
-INGRESS_HOST=$(kubectl get svc istio-ingressgateway -n $ISTIO_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-INGRESS_PORT=$(kubectl get svc istio-ingressgateway -n $ISTIO_NAMESPACE -o jsonpath='{.spec.ports[?(@.name=="http2")].port}')
+INGRESS_HOST=$(kubectl get svc istio-ingressgateway -n $ISTIO_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}') || {  
+    print_warning "Failed to get LoadBalancer IP for istio-ingressgateway. Check your Kubernetes context and service status."  
+    INGRESS_HOST=""  
+}  
+INGRESS_PORT=$(kubectl get svc istio-ingressgateway -n $ISTIO_NAMESPACE -o jsonpath='{.spec.ports[?(@.name=="http2")].port}') || {  
+    print_warning "Failed to get port for istio-ingressgateway. Check your Kubernetes context and service status."  
+    INGRESS_PORT="80"  
+}  
 
-if [ -z "$INGRESS_HOST" ]; then
-    INGRESS_HOST=$(kubectl get svc istio-ingressgateway -n $ISTIO_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-fi
+if [ -z "$INGRESS_HOST" ]; then  
+    INGRESS_HOST=$(kubectl get svc istio-ingressgateway -n $ISTIO_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].hostname}') || {  
+        print_warning "Failed to get LoadBalancer hostname for istio-ingressgateway. Check your Kubernetes context and service status."  
+        INGRESS_HOST=""  
+    }  
 
 if [ -z "$INGRESS_HOST" ]; then
     print_warning "LoadBalancer IP not available. Starting port-forward..."

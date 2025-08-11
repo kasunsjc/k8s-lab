@@ -84,7 +84,7 @@ cleanup_crds() {
     print_status "Cleaning up Istio CRDs..."
     
     # Delete Istio CRDs
-    kubectl get crd -o name | grep --color=never 'istio.io' | xargs kubectl delete --ignore-not-found=true
+    kubectl get crd -o name | grep --color=never 'istio.io' | xargs kubectl delete --ignore-not-found=true || true
     
     print_success "Istio CRDs cleaned up"
 }
