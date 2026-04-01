@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # 🚀 Demo Application Deployment Script
 #
@@ -33,7 +34,7 @@ if [ "$ENV_TYPE" = "minikube" ]; then
   
   # Make sure we're using the correct Minikube context
   echo "🔄 Setting Kubernetes context to Minikube profile: $CLUSTER_NAME"
-  minikube profile $CLUSTER_NAME
+  minikube profile "$CLUSTER_NAME"
   
 elif [ "$ENV_TYPE" = "kind" ]; then
   echo "🔍 Checking if Kind cluster exists: $CLUSTER_NAME"
@@ -43,8 +44,8 @@ elif [ "$ENV_TYPE" = "kind" ]; then
   fi
   
   # Make sure we're using the correct Kind context
-  echo "🔄 Setting Kubernetes context to Kind cluster: kind-$CLUSTER_NAME"
-  kubectl config use-context kind-$CLUSTER_NAME
+  echo -e "🔄 Setting Kubernetes context to Kind cluster: kind-$CLUSTER_NAME"
+  kubectl config use-context "kind-$CLUSTER_NAME"
   
 else
   echo "❌ Error: Unknown environment type. Please specify 'minikube' or 'kind'"
@@ -56,21 +57,33 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # 📦 Deploy the demo application
 echo "🚀 Deploying the Online Boutique demo application..."
+if [ ! -f "$SCRIPT_DIR/demo-app.yaml" ]; then
+    echo "❌ Error: demo-app.yaml not found at $SCRIPT_DIR/demo-app.yaml"
+    exit 1
+fi
 kubectl apply -f "$SCRIPT_DIR/demo-app.yaml"
 
 # 👮‍♀️ For Minikube dashboard, create admin account if needed
 if [ "$ENV_TYPE" = "minikube" ]; then
   # Enable the dashboard if it's not already enabled
   echo "📊 Ensuring Kubernetes Dashboard is enabled..."
-  minikube addons enable dashboard -p $CLUSTER_NAME
+  minikube addons enable dashboard -p "$CLUSTER_NAME"
   
   # Create admin user for the dashboard
   echo "👤 Creating admin user for Kubernetes Dashboard..."
-  kubectl apply -f "$SCRIPT_DIR/k8s-dashboard.yaml"
-  
-  # Get the authentication token
-  echo "🔑 Getting authentication token for Dashboard..."
-  kubectl -n kubernetes-dashboard create token admin-user
+  if [ ! -f "$SCRIPT_DIR/k8s-dashboard.yaml" ]; then
+      echo "⚠️  Warning: k8s-dashboard.yaml not found, skipping dashboard setup"
+  else
+      kubectl apply -f "$SCRIPT_DIR/k8s-dashboard.yaml"
+      
+      # Wait for the service account to be ready
+      echo "⏱️ Waiting for dashboard service account..."
+      sleep 3
+      
+      # Get the authentication token
+      echo "🔑 Getting authentication token for Dashboard..."
+      kubectl -n kubernetes-dashboard create token admin-user 2>/dev/null || echo "⚠️  Token generation failed. Try manually: kubectl -n kubernetes-dashboard create token admin-user"
+  fi
   
   # Show instructions for accessing the dashboard
   echo ""
@@ -78,9 +91,9 @@ if [ "$ENV_TYPE" = "minikube" ]; then
   echo "minikube dashboard -p $CLUSTER_NAME"
 fi
 
-# 🌐 Wait for the ingress to be ready
+# 🌐 Wait for the deployment to be ready
 echo "⏱️ Waiting for the demo application to be ready..."
-kubectl wait --for=condition=available --timeout=300s deployment/microservices-demo
+kubectl rollout status deployment/microservices-demo --timeout=300s || echo "⚠️  Warning: Deployment rollout did not complete within timeout"
 
 # 🔗 Show access information based on environment
 echo ""

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # 📊 Kubernetes Monitoring Demo Deployment Script
 #
@@ -55,7 +55,7 @@ echo -e "${CYAN}🚀 Deploying monitoring stack to $ENV_TYPE cluster: $CLUSTER_N
 # Ensure we're using the right context
 if [ "$ENV_TYPE" = "minikube" ]; then
     echo -e "${YELLOW}📍 Setting kubectl context to Minikube profile: $CLUSTER_NAME${NC}"
-    minikube profile $CLUSTER_NAME
+    minikube profile "$CLUSTER_NAME"
     CONTEXT=$(kubectl config current-context)
 elif [ "$ENV_TYPE" = "kind" ]; then
     echo -e "${YELLOW}📍 Setting kubectl context to Kind cluster: $CLUSTER_NAME${NC}"
@@ -147,9 +147,9 @@ fi
 
 # Wait for deployments to be ready
 echo -e "${CYAN}⏳ Waiting for deployments to be ready...${NC}"
-kubectl rollout status deployment/prometheus-prometheus -n monitoring --timeout=180s || true
-kubectl rollout status deployment/prometheus-grafana -n monitoring --timeout=180s || true
-kubectl rollout status deployment/prometheus-kube-state-metrics -n monitoring --timeout=120s || true
+kubectl rollout status statefulset/prometheus-prometheus-kube-prometheus-prometheus -n monitoring --timeout=180s || echo -e "${YELLOW}⚠️  Prometheus StatefulSet not ready within timeout${NC}"
+kubectl rollout status deployment/prometheus-grafana -n monitoring --timeout=180s || echo -e "${YELLOW}⚠️  Grafana not ready within timeout${NC}"
+kubectl rollout status deployment/prometheus-kube-state-metrics -n monitoring --timeout=120s || echo -e "${YELLOW}⚠️  Kube State Metrics not ready within timeout${NC}"
 echo -e "${GREEN}✅ Deployments are ready!${NC}"
 
 # Display access information

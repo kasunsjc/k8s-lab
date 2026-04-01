@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # 🔶 🚀 Multi-Node Kind Lab Setup Script 🚀 🔶
 #
@@ -31,10 +31,11 @@ install_dependencies() {
             # Install Kind for macOS
             brew install kind
         elif [ "$MACHINE" == "Linux" ]; then
-            # Install Kind for Linux
+            # Install Kind for Linux (auto-detect latest version)
             echo "Installing Kind for Linux..."
-            # Download the latest version of Kind
-            curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+            KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "v0.22.0")
+            echo "Detected latest Kind version: $KIND_VERSION"
+            curl -Lo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
             # Make it executable and move it to a directory in your PATH
             chmod +x ./kind
             sudo mv ./kind /usr/local/bin/
@@ -110,7 +111,7 @@ if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
         CONTAINER_EXISTS=$(docker ps -a -q --filter "name=${CLUSTER_NAME}-control-plane" | wc -l | tr -d ' ')
         if [ "$CONTAINER_EXISTS" -gt 0 ]; then
             echo "🔄 Existing containers found. Attempting to start them..."
-            docker ps -a --filter "name=${CLUSTER_NAME}-" --format "{{.ID}}" | xargs docker start
+            docker ps -a --filter "name=${CLUSTER_NAME}-" --format "{{.ID}}" | xargs -r docker start
             echo "✅ Containers started successfully!"
             # Switch to this cluster's context
             kubectl config use-context "kind-${CLUSTER_NAME}" 
@@ -123,8 +124,16 @@ else
     echo "🆕 No existing cluster found. Creating a new cluster..."
 fi
 
-# �📝 Create Kind cluster configuration
+# 📝 Create Kind cluster configuration
 echo "📝 Creating Kind cluster configuration..."
+
+# Check for port conflicts before cluster creation
+for port in 80 443; do
+    if lsof -i ":${port}" &>/dev/null 2>&1 || ss -tlnp 2>/dev/null | grep -q ":${port} " 2>/dev/null; then
+        echo "⚠️  Warning: Port ${port} is already in use. Kind cluster creation may fail."
+        echo "   Please free up port ${port} or modify the port mappings."
+    fi
+done
 
 cat > kind-config.yaml << EOF
 kind: Cluster
@@ -151,7 +160,10 @@ EOF
 
 # 🚀 Create a new Kind cluster
 echo "🚀 Creating a new Kind cluster with 3 nodes (1 control-plane, 2 workers) and name '$CLUSTER_NAME'..."
-kind create cluster --config=kind-config.yaml
+if ! kind create cluster --config=kind-config.yaml; then
+    echo "❌ Failed to create Kind cluster. Please check the error above."
+    exit 1
+fi
 
 # ✅ Verify the cluster status
 echo "✅ Verifying cluster status..."
@@ -159,11 +171,15 @@ kubectl get nodes
 
 # 📈 Install Metrics Server
 echo "📈 Installing Metrics Server..."
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+if ! kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml; then
+    echo "⚠️  Warning: Failed to install Metrics Server. You can install it manually later."
+fi
 
 # 🌐 Install Ingress Controller (NGINX)
 echo "🌐 Installing NGINX Ingress Controller..."
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+if ! kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml; then
+    echo "⚠️  Warning: Failed to install NGINX Ingress Controller. You can install it manually later."
+fi
 
 # ℹ️ Print cluster info
 echo "ℹ️ Cluster Information:"

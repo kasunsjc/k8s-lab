@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # 🔷 🚀 Multi-Node Minikube Lab Setup Script 🚀 🔷
 #
@@ -97,14 +97,18 @@ if minikube profile list -o json | grep -q "\"Name\":\"$PROFILE_NAME\""; then
     echo "✅ Found existing cluster with profile '$PROFILE_NAME'!"
     
     # Check if it's running or stopped
-    STATUS=$(minikube status -p $PROFILE_NAME -o json 2>/dev/null | grep -o '\"Host\":\"[^\"]*\"' | cut -d'"' -f4)
+    if command -v jq &> /dev/null; then
+        STATUS=$(minikube status -p "$PROFILE_NAME" -o json 2>/dev/null | jq -r '.Host // "Unknown"')
+    else
+        STATUS=$(minikube status -p "$PROFILE_NAME" -o json 2>/dev/null | grep -o '"Host":"[^"]*"' | cut -d'"' -f4 || echo "Unknown")
+    fi
     
     if [ "$STATUS" = "Running" ]; then
         echo "✅ Cluster is already running! No action needed."
         exit 0
     else
         echo "🔄 Starting existing cluster with profile '$PROFILE_NAME'..."
-        minikube start -p $PROFILE_NAME
+        minikube start -p "$PROFILE_NAME"
         echo "✅ Cluster started successfully!"
         exit 0
     fi
@@ -157,18 +161,21 @@ echo "🚗 Using driver: $DRIVER"
 
 # 🚀 Start a new Minikube cluster with multiple nodes and specific profile
 echo "🚀 Starting a new Minikube cluster with $NODE_COUNT nodes and profile '$PROFILE_NAME'..."
-minikube start -p $PROFILE_NAME --nodes=$NODE_COUNT --driver=$DRIVER --kubernetes-version=stable
+if ! minikube start -p "$PROFILE_NAME" --nodes="$NODE_COUNT" --driver="$DRIVER" --kubernetes-version=stable; then
+    echo "❌ Failed to start Minikube cluster. Please check the error above."
+    exit 1
+fi
 
 # ✅ Verify the cluster status
 echo "✅ Verifying cluster status..."
-minikube status -p $PROFILE_NAME
+minikube status -p "$PROFILE_NAME"
 kubectl get nodes
 
 # 🧩 Enable addons (optional)
 echo "🧩 Enabling useful addons..."
-minikube addons enable dashboard -p $PROFILE_NAME      # 📊 Dashboard
-minikube addons enable metrics-server -p $PROFILE_NAME # 📈 Metrics
-minikube addons enable ingress -p $PROFILE_NAME        # 🌐 Ingress
+minikube addons enable dashboard -p "$PROFILE_NAME" || echo "⚠️  Warning: Failed to enable dashboard addon"
+minikube addons enable metrics-server -p "$PROFILE_NAME" || echo "⚠️  Warning: Failed to enable metrics-server addon"
+minikube addons enable ingress -p "$PROFILE_NAME" || echo "⚠️  Warning: Failed to enable ingress addon"
 
 # ℹ️ Print cluster info
 echo "ℹ️ Cluster Information:"

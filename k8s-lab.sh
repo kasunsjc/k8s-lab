@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # 🚀 Kubernetes Lab Management Script
 # 
@@ -46,9 +47,24 @@ show_help() {
 }
 
 check_tool() {
-    if ! command -v $1 &> /dev/null; then
+    if ! command -v "$1" &> /dev/null; then
         echo -e "${RED}❌ Error: $1 is not installed${NC}"
         echo -e "💡 Please install $1 first. See the lab README for instructions."
+        exit 1
+    fi
+}
+
+check_docker_running() {
+    if ! docker info &> /dev/null; then
+        echo -e "${RED}❌ Error: Docker is not running. Please start Docker first.${NC}"
+        exit 1
+    fi
+}
+
+validate_script_exists() {
+    if [ ! -f "$1" ]; then
+        echo -e "${RED}❌ Error: Script not found: $1${NC}"
+        echo -e "💡 Make sure you are running this from the repository root directory."
         exit 1
     fi
 }
@@ -70,26 +86,33 @@ start_cluster() {
         if minikube profile list -o json 2>/dev/null | grep -q "\"Name\":\"$cluster_name\""; then
             echo -e "${YELLOW}✅ Found existing cluster with profile '$cluster_name'${NC}"
             
-            # Check status
-            STATUS=$(minikube status -p $cluster_name -o json 2>/dev/null | grep -o '\"Host\":\"[^\"]*\"' | cut -d'"' -f4 || echo "Unknown")
+            # Check status using jq if available, fall back to grep
+            if command -v jq &> /dev/null; then
+                STATUS=$(minikube status -p "$cluster_name" -o json 2>/dev/null | jq -r '.Host // "Unknown"')
+            else
+                STATUS=$(minikube status -p "$cluster_name" -o json 2>/dev/null | grep -o '"Host":"[^"]*"' | cut -d'"' -f4 || echo "Unknown")
+            fi
             
             if [ "$STATUS" = "Running" ]; then
                 echo -e "${GREEN}✅ Cluster is already running!${NC}"
-                minikube status -p $cluster_name
+                minikube status -p "$cluster_name"
                 return 0
             else
                 echo -e "${YELLOW}🔄 Starting existing cluster with profile '$cluster_name'...${NC}"
-                minikube start -p $cluster_name
+                minikube start -p "$cluster_name"
                 echo -e "${GREEN}✅ Cluster started successfully!${NC}"
                 return 0
             fi
         else
             # Let the setup script handle creating a new cluster
-            ./minikube-lab/setup-minikube.sh $cluster_name
+            validate_script_exists "./minikube-lab/setup-minikube.sh"
+            ./minikube-lab/setup-minikube.sh "$cluster_name"
         fi
     
     elif [ "$env_type" = "kind" ]; then
         check_tool kind
+        check_tool docker
+        check_docker_running
         
         # Set default kind cluster name if not provided
         if [ -z "$cluster_name" ]; then
@@ -113,7 +136,7 @@ start_cluster() {
                 CONTAINER_EXISTS=$(docker ps -a -q --filter "name=${cluster_name}-control-plane" | wc -l | tr -d ' ')
                 if [ "$CONTAINER_EXISTS" -gt 0 ]; then
                     echo -e "${YELLOW}🔄 Existing containers found. Starting them...${NC}"
-                    docker ps -a --filter "name=${cluster_name}-" --format "{{.ID}}" | xargs docker start
+                    docker ps -a --filter "name=${cluster_name}-" --format "{{.ID}}" | xargs -r docker start
                     echo -e "${GREEN}✅ Containers started! Waiting for cluster to be ready...${NC}"
                     sleep 5  # Give the cluster a moment to initialize
                     kubectl config use-context "kind-${cluster_name}"
@@ -124,7 +147,8 @@ start_cluster() {
         fi
         
         # Let the setup script handle creation or recreation
-        ./kind-lab/setup-kind.sh $cluster_name
+        validate_script_exists "./kind-lab/setup-kind.sh"
+        ./kind-lab/setup-kind.sh "$cluster_name"
     
     else
         echo -e "${RED}❌ Error: Please specify 'minikube' or 'kind' as the environment type${NC}"
@@ -145,7 +169,7 @@ stop_cluster() {
         fi
         
         echo -e "${YELLOW}🛑 Stopping Minikube cluster: $cluster_name ${NC}"
-        minikube stop -p $cluster_name
+        minikube stop -p "$cluster_name"
     
     elif [ "$env_type" = "kind" ]; then
         check_tool kind
@@ -167,29 +191,39 @@ stop_cluster() {
 check_status() {
     local env_type=$1
     
+    check_tool kubectl
+    
     echo -e "${CYAN}📊 Checking Kubernetes Cluster Status:${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     
     if [ -z "$env_type" ] || [ "$env_type" = "minikube" ]; then
-        check_tool minikube
-        echo -e "${YELLOW}🔷 Minikube Clusters:${NC}"
-        minikube profile list
-        echo
+        if command -v minikube &> /dev/null; then
+            echo -e "${YELLOW}🔷 Minikube Clusters:${NC}"
+            minikube profile list 2>/dev/null || echo -e "${YELLOW}  No Minikube profiles found${NC}"
+            echo
+        else
+            echo -e "${YELLOW}🔷 Minikube: not installed${NC}"
+            echo
+        fi
     fi
     
     if [ -z "$env_type" ] || [ "$env_type" = "kind" ]; then
-        check_tool kind
-        echo -e "${YELLOW}🔶 Kind Clusters:${NC}"
-        kind get clusters
-        echo
+        if command -v kind &> /dev/null; then
+            echo -e "${YELLOW}🔶 Kind Clusters:${NC}"
+            kind get clusters 2>/dev/null || echo -e "${YELLOW}  No Kind clusters found${NC}"
+            echo
+        else
+            echo -e "${YELLOW}🔶 Kind: not installed${NC}"
+            echo
+        fi
     fi
     
     echo -e "${CYAN}📊 Kubernetes Contexts:${NC}"
-    kubectl config get-contexts
+    kubectl config get-contexts 2>/dev/null || echo -e "${YELLOW}  No contexts configured${NC}"
     echo
     
     echo -e "${CYAN}📊 Current Context:${NC}"
-    kubectl config current-context
+    kubectl config current-context 2>/dev/null || echo -e "${YELLOW}  No current context set${NC}"
 }
 
 deploy_demo() {
@@ -202,8 +236,10 @@ deploy_demo() {
     fi
     
     echo -e "${GREEN}🚀 Deploying demo application to $env_type cluster: $cluster_name ${NC}"
+    validate_script_exists "./demo-app/deploy-demo.sh"
     # Change to the demo-app directory before running the deploy script
-    (cd demo-app && ./deploy-demo.sh $env_type $cluster_name)
+    cd demo-app && ./deploy-demo.sh "$env_type" "$cluster_name"
+    cd ..
 }
 
 deploy_advanced() {
@@ -217,8 +253,10 @@ deploy_advanced() {
     fi
     
     echo -e "${GREEN}🚀 Deploying advanced demo applications to $env_type cluster: $cluster_name ${NC}"
+    validate_script_exists "./demo-app/advanced-demos/deploy-advanced-demos.sh"
     # Change to the advanced-demos directory before running the deploy script
-    (cd demo-app/advanced-demos && ./deploy-advanced-demos.sh $env_type $cluster_name $demo_type)
+    cd demo-app/advanced-demos && ./deploy-advanced-demos.sh "$env_type" "$cluster_name" "$demo_type"
+    cd ../..
 }
 
 open_dashboard() {
@@ -234,7 +272,7 @@ open_dashboard() {
         fi
         
         echo -e "${GREEN}📊 Opening Kubernetes Dashboard for Minikube: $cluster_name ${NC}"
-        minikube dashboard -p $cluster_name
+        minikube dashboard -p "$cluster_name"
         
     elif [ "$env_type" = "kind" ]; then
         # Check if k9s is installed
@@ -251,7 +289,7 @@ open_dashboard() {
             fi
             
             # Make sure we're using the correct Kind context
-            kubectl config use-context kind-$cluster_name
+            kubectl config use-context "kind-$cluster_name"
             
             # Show some helpful output instead
             echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -271,7 +309,7 @@ open_dashboard() {
             fi
             
             # Make sure we're using the correct Kind context
-            kubectl config use-context kind-$cluster_name
+            kubectl config use-context "kind-$cluster_name"
             
             # Launch k9s
             k9s
@@ -297,9 +335,9 @@ cleanup_cluster() {
         
         echo -e "${RED}⚠️ Cleaning up Minikube cluster: $cluster_name ${NC}"
         echo -e "${YELLOW}This will delete the cluster and all related resources.${NC}"
-        read -p "Are you sure you want to proceed? (y/n): " confirm
-        if [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]]; then
-            minikube delete -p $cluster_name
+        read -rp "Are you sure you want to proceed? (y/n): " confirm
+        if [[ $confirm =~ ^[Yy](es)?$ ]]; then
+            minikube delete -p "$cluster_name"
             echo -e "${GREEN}✅ Cluster $cluster_name has been deleted${NC}"
         else
             echo -e "${YELLOW}⚠️ Cleanup cancelled${NC}"
@@ -315,9 +353,9 @@ cleanup_cluster() {
         
         echo -e "${RED}⚠️ Cleaning up Kind cluster: $cluster_name ${NC}"
         echo -e "${YELLOW}This will delete the cluster and all related resources.${NC}"
-        read -p "Are you sure you want to proceed? (y/n): " confirm
-        if [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]]; then
-            kind delete cluster --name $cluster_name
+        read -rp "Are you sure you want to proceed? (y/n): " confirm
+        if [[ $confirm =~ ^[Yy](es)?$ ]]; then
+            kind delete cluster --name "$cluster_name"
             echo -e "${GREEN}✅ Cluster $cluster_name has been deleted${NC}"
         else
             echo -e "${YELLOW}⚠️ Cleanup cancelled${NC}"

@@ -58,7 +58,7 @@ if [ "$ENV_TYPE" = "minikube" ]; then
   
   # Make sure we're using the correct Minikube context
   echo -e "${YELLOW}🔄 Setting Kubernetes context to Minikube profile: $CLUSTER_NAME${NC}"
-  minikube profile $CLUSTER_NAME
+  minikube profile "$CLUSTER_NAME"
   
 elif [ "$ENV_TYPE" = "kind" ]; then
   echo -e "${CYAN}🔍 Checking if Kind cluster exists: $CLUSTER_NAME${NC}"
@@ -69,7 +69,7 @@ elif [ "$ENV_TYPE" = "kind" ]; then
   
   # Make sure we're using the correct Kind context
   echo -e "${YELLOW}🔄 Setting Kubernetes context to Kind cluster: kind-$CLUSTER_NAME${NC}"
-  kubectl config use-context kind-$CLUSTER_NAME
+  kubectl config use-context "kind-$CLUSTER_NAME"
   
 else
   echo -e "${RED}❌ Error: Unknown environment type. Please specify 'minikube' or 'kind'${NC}"
@@ -80,7 +80,7 @@ fi
 if [ "$DEMO_TYPE" = "all" ] || [ "$DEMO_TYPE" = "hpa" ]; then
   echo -e "${YELLOW}📊 Ensuring Metrics Server is enabled...${NC}"
   if [ "$ENV_TYPE" = "minikube" ]; then
-    minikube addons enable metrics-server -p $CLUSTER_NAME
+    minikube addons enable metrics-server -p "$CLUSTER_NAME"
   elif [ "$ENV_TYPE" = "kind" ]; then
     # Check if metrics-server is already deployed
     if ! kubectl get deployment metrics-server -n kube-system &> /dev/null; then
@@ -99,6 +99,10 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 if [ "$DEMO_TYPE" = "all" ] || [ "$DEMO_TYPE" = "stateful" ]; then
   echo -e "${GREEN}🚀 Deploying MongoDB StatefulSet demo...${NC}"
+  if [ ! -f "$SCRIPT_DIR/stateful-mongodb.yaml" ]; then
+      echo -e "${RED}❌ Error: stateful-mongodb.yaml not found${NC}"
+      exit 1
+  fi
   kubectl apply -f "$SCRIPT_DIR/stateful-mongodb.yaml"
   echo -e "${CYAN}✅ MongoDB StatefulSet demo deployed!${NC}"
   echo ""
@@ -106,6 +110,10 @@ fi
 
 if [ "$DEMO_TYPE" = "all" ] || [ "$DEMO_TYPE" = "hpa" ]; then
   echo -e "${GREEN}🚀 Deploying HorizontalPodAutoscaler demo...${NC}"
+  if [ ! -f "$SCRIPT_DIR/hpa-demo.yaml" ]; then
+      echo -e "${RED}❌ Error: hpa-demo.yaml not found${NC}"
+      exit 1
+  fi
   kubectl apply -f "$SCRIPT_DIR/hpa-demo.yaml"
   echo -e "${CYAN}✅ HPA demo deployed!${NC}"
   echo ""
@@ -113,6 +121,10 @@ fi
 
 if [ "$DEMO_TYPE" = "all" ] || [ "$DEMO_TYPE" = "config-secret" ]; then
   echo -e "${GREEN}🚀 Deploying ConfigMap and Secret demo...${NC}"
+  if [ ! -f "$SCRIPT_DIR/configmap-secret-demo.yaml" ]; then
+      echo -e "${RED}❌ Error: configmap-secret-demo.yaml not found${NC}"
+      exit 1
+  fi
   kubectl apply -f "$SCRIPT_DIR/configmap-secret-demo.yaml"
   echo -e "${CYAN}✅ ConfigMap and Secret demo deployed!${NC}"
   echo ""
@@ -123,8 +135,8 @@ echo -e "${YELLOW}⏱️ Waiting for demo applications to be ready...${NC}"
 
 if [ "$DEMO_TYPE" = "all" ] || [ "$DEMO_TYPE" = "stateful" ]; then
   echo -e "${CYAN}🔄 Waiting for MongoDB StatefulSet...${NC}"
-  kubectl wait --for=condition=Ready pod/mongodb-0 --timeout=120s
-  kubectl wait --for=condition=Ready pod/mongo-express-0 --timeout=120s || true
+  kubectl wait --for=condition=Ready pod/mongodb-0 --timeout=120s || echo -e "${YELLOW}⚠️  MongoDB pod not ready within timeout${NC}"
+  kubectl wait --for=condition=available --timeout=120s deployment/mongo-express || echo -e "${YELLOW}⚠️  Mongo Express not ready within timeout${NC}"
 fi
 
 if [ "$DEMO_TYPE" = "all" ] || [ "$DEMO_TYPE" = "hpa" ]; then
