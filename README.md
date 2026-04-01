@@ -138,23 +138,17 @@ You can manually trigger these tests anytime by going to the **Actions** tab in 
 
 ### 🧪 Manual Testing
 
-For development and testing purposes, you can manually trigger the verification workflows:
+For development and testing purposes, you can manually trigger the verification workflows using the GitHub CLI:
 
 ```bash
-# Test both setups on current branch
-./test-workflows.sh
+# Trigger Kind lab verification on current branch
+gh workflow run verify-kind-cluster.yml --ref "$(git branch --show-current)"
 
-# Test only Kind setup on current branch
-./test-workflows.sh kind
+# Trigger Minikube lab verification on current branch
+gh workflow run verify-minikube-cluster.yml --ref "$(git branch --show-current)"
 
-# Test only Minikube setup on current branch
-./test-workflows.sh minikube
-
-# Test both setups on a specific branch
-./test-workflows.sh both feature/my-branch
-
-# Test Kind setup on main branch
-./test-workflows.sh kind main
+# Trigger daily verification
+gh workflow run daily-verification.yml --ref "$(git branch --show-current)"
 ```
 
 > **Note:** This requires GitHub CLI (`gh`) to be installed and authenticated.
@@ -192,7 +186,6 @@ You can also navigate to either the `minikube-lab` or `kind-lab` directory and f
 Kubernetes-Lab/
 ├── README.md                     # This file
 ├── k8s-lab.sh                    # Unified management script for all clusters
-├── test-workflows.sh             # Manual workflow testing script
 ├── .github/                      # GitHub Actions workflows
 │   └── workflows/
 │       ├── verify-kind-cluster.yml      # Kind lab verification
@@ -221,3 +214,44 @@ Kubernetes-Lab/
 ## 🙏 Feedback and Contributions
 
 Feedback and contributions are welcome! Feel free to open issues or submit pull requests to improve these labs.
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+**Cluster creation fails with port conflict:**
+```
+Error: port 80 or 443 is already in use
+```
+Stop any services using those ports (e.g., a local web server), or modify the Kind config to use alternate ports.
+
+**Minikube status check fails:**
+Ensure `jq` is installed for reliable JSON parsing: `brew install jq` (macOS) or `sudo apt install jq` (Linux).
+
+**Docker is not running:**
+Start Docker Desktop or the Docker daemon before running any cluster commands:
+```bash
+# macOS/Windows: Open Docker Desktop
+# Linux:
+sudo systemctl start docker
+```
+
+**kubectl context not set:**
+```bash
+# For Kind clusters
+kubectl config use-context kind-<cluster-name>
+
+# For Minikube clusters
+minikube profile <profile-name>
+```
+
+**Metrics Server not working on Kind:**
+The metrics server may need the `--kubelet-insecure-tls` flag. The setup scripts handle this automatically, but if you installed manually:
+```bash
+kubectl patch deployment metrics-server -n kube-system --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+```
+
+**Ingress not accessible:**
+- **Kind:** Ensure ports 80/443 are free and the NGINX Ingress Controller is running: `kubectl get pods -n ingress-nginx`
+- **Minikube:** Run `minikube tunnel -p <profile>` to expose services
