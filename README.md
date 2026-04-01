@@ -142,13 +142,13 @@ For development and testing purposes, you can manually trigger the verification 
 
 ```bash
 # Trigger Kind lab verification on current branch
-gh workflow run verify-kind-cluster.yml
+gh workflow run verify-kind-cluster.yml --ref "$(git branch --show-current)"
 
 # Trigger Minikube lab verification on current branch
-gh workflow run verify-minikube-cluster.yml
+gh workflow run verify-minikube-cluster.yml --ref "$(git branch --show-current)"
 
 # Trigger daily verification
-gh workflow run daily-verification.yml
+gh workflow run daily-verification.yml --ref "$(git branch --show-current)"
 ```
 
 > **Note:** This requires GitHub CLI (`gh`) to be installed and authenticated.

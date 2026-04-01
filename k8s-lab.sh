@@ -136,7 +136,10 @@ start_cluster() {
                 CONTAINER_EXISTS=$(docker ps -a -q --filter "name=${cluster_name}-control-plane" | wc -l | tr -d ' ')
                 if [ "$CONTAINER_EXISTS" -gt 0 ]; then
                     echo -e "${YELLOW}🔄 Existing containers found. Starting them...${NC}"
-                    docker ps -a --filter "name=${cluster_name}-" --format "{{.ID}}" | xargs -r docker start
+                    CONTAINERS=$(docker ps -a --filter "name=${cluster_name}-" --format "{{.ID}}")
+                    if [ -n "$CONTAINERS" ]; then
+                        echo "$CONTAINERS" | xargs docker start
+                    fi
                     echo -e "${GREEN}✅ Containers started! Waiting for cluster to be ready...${NC}"
                     sleep 5  # Give the cluster a moment to initialize
                     kubectl config use-context "kind-${cluster_name}"
@@ -368,33 +371,33 @@ cleanup_cluster() {
 }
 
 # Main script execution
-case "$1" in
+case "${1:-}" in
     start)
-        start_cluster "$2" "$3"
+        start_cluster "${2:-}" "${3:-}"
         ;;
     stop)
-        stop_cluster "$2" "$3"
+        stop_cluster "${2:-}" "${3:-}"
         ;;
     status)
-        check_status "$2"
+        check_status "${2:-}"
         ;;
     deploy-demo)
-        deploy_demo "$2" "$3"
+        deploy_demo "${2:-}" "${3:-}"
         ;;
     deploy-advanced)
-        deploy_advanced "$2" "$3" "$4"
+        deploy_advanced "${2:-}" "${3:-}" "${4:-}"
         ;;
     dashboard)
-        open_dashboard "$2" "$3"
+        open_dashboard "${2:-}" "${3:-}"
         ;;
     cleanup)
-        cleanup_cluster "$2" "$3"
+        cleanup_cluster "${2:-}" "${3:-}"
         ;;
     help|--help|-h)
         show_help
         ;;
     *)
-        echo -e "${RED}❌ Error: Unknown command '$1'${NC}"
+        echo -e "${RED}❌ Error: Unknown command '${1:-}'${NC}"
         show_help
         exit 1
         ;;

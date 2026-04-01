@@ -111,7 +111,10 @@ if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
         CONTAINER_EXISTS=$(docker ps -a -q --filter "name=${CLUSTER_NAME}-control-plane" | wc -l | tr -d ' ')
         if [ "$CONTAINER_EXISTS" -gt 0 ]; then
             echo "🔄 Existing containers found. Attempting to start them..."
-            docker ps -a --filter "name=${CLUSTER_NAME}-" --format "{{.ID}}" | xargs -r docker start
+            CONTAINER_IDS=$(docker ps -a --filter "name=${CLUSTER_NAME}-" --format "{{.ID}}")
+            if [ -n "$CONTAINER_IDS" ]; then
+                echo "$CONTAINER_IDS" | xargs docker start
+            fi
             echo "✅ Containers started successfully!"
             # Switch to this cluster's context
             kubectl config use-context "kind-${CLUSTER_NAME}" 
@@ -135,7 +138,11 @@ for port in 80 443; do
     fi
 done
 
-cat > kind-config.yaml << EOF
+# Use a temp file for the Kind config to avoid leaving stale files
+KIND_CONFIG=$(mktemp "${TMPDIR:-/tmp}/kind-config.XXXXXX.yaml")
+trap 'rm -f "$KIND_CONFIG"' EXIT
+
+cat > "$KIND_CONFIG" << EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: ${CLUSTER_NAME}
@@ -160,7 +167,7 @@ EOF
 
 # 🚀 Create a new Kind cluster
 echo "🚀 Creating a new Kind cluster with 3 nodes (1 control-plane, 2 workers) and name '$CLUSTER_NAME'..."
-if ! kind create cluster --config=kind-config.yaml; then
+if ! kind create cluster --config="$KIND_CONFIG"; then
     echo "❌ Failed to create Kind cluster. Please check the error above."
     exit 1
 fi

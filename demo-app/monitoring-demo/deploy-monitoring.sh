@@ -25,8 +25,8 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 
 # Get command line arguments
-ENV_TYPE=$1
-CLUSTER_NAME=$2
+ENV_TYPE=${1:-}
+CLUSTER_NAME=${2:-}
 
 # Validate arguments
 if [ -z "$ENV_TYPE" ]; then

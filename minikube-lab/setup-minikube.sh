@@ -122,7 +122,7 @@ NODE_COUNT=3  # 🖧 🖧 🖧
 # 🚗 Determine the best driver to use
 determine_driver() {
     # Check if we're running in a CI environment
-    if [ -n "${CI}" ]; then
+    if [ -n "${CI:-}" ]; then
         echo "none"
         return
     fi
