@@ -5,6 +5,7 @@ metadata:
   name: mongodb-credentials
 type: Opaque
 stringData:
+  # Demo-only credentials — do NOT use in production. Replace with your own values.
   username: "admin"
   password: "password"
 ---
@@ -95,6 +96,7 @@ metadata:
   name: mongo-express-credentials
 type: Opaque
 stringData:
+  # Demo-only credentials — do NOT use in production. Replace with your own values.
   username: "admin"
   password: "password"
 ---

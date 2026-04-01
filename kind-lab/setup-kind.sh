@@ -31,11 +31,17 @@ install_dependencies() {
             # Install Kind for macOS
             brew install kind
         elif [ "$MACHINE" == "Linux" ]; then
-            # Install Kind for Linux (auto-detect latest version)
+            # Install Kind for Linux (auto-detect latest version and architecture)
             echo "Installing Kind for Linux..."
             KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "v0.22.0")
-            echo "Detected latest Kind version: $KIND_VERSION"
-            curl -Lo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+            ARCH=$(uname -m)
+            case "$ARCH" in
+                x86_64)  KIND_ARCH="amd64" ;;
+                aarch64) KIND_ARCH="arm64" ;;
+                *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
+            esac
+            echo "Detected Kind version: $KIND_VERSION, architecture: $KIND_ARCH"
+            curl -fLo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${KIND_ARCH}"
             # Make it executable and move it to a directory in your PATH
             chmod +x ./kind
             sudo mv ./kind /usr/local/bin/

@@ -88,7 +88,7 @@ start_cluster() {
             
             # Check status using jq if available, fall back to grep
             if command -v jq &> /dev/null; then
-                STATUS=$(minikube status -p "$cluster_name" -o json 2>/dev/null | jq -r '.Host // "Unknown"')
+                STATUS=$( (minikube status -p "$cluster_name" -o json 2>/dev/null || true) | jq -r '.Host // "Unknown"')
             else
                 STATUS=$(minikube status -p "$cluster_name" -o json 2>/dev/null | grep -o '"Host":"[^"]*"' | cut -d'"' -f4 || echo "Unknown")
             fi
