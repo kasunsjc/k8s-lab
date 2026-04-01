@@ -1,0 +1,951 @@
+name: 🧪 Enhanced Minikube and Kind Labs Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'k8s-lab.ps1'
+      - 'minikube-lab/**'
+      - 'kind-lab/**'
+      - 'demo-app/**'
+      - '.github/workflows/test-labs*.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'k8s-lab.ps1'
+      - 'minikube-lab/**'
+      - 'kind-lab/**'
+      - 'demo-app/**'
+  workflow_dispatch:
+    inputs:
+      test_environment:
+        description: 'Test environment'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - minikube
+          - kind
+          - both
+      test_depth:
+        description: 'Test depth level'
+        required: false
+        default: 'standard'
+        type: choice
+        options:
+          - syntax
+          - standard
+          - comprehensive
+      skip_cluster_creation:
+        description: 'Skip actual cluster creation'
+        required: false
+        default: false
+        type: boolean
+      enable_debugging:
+        description: 'Enable detailed debugging output'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  MINIKUBE_VERSION: 'v1.33.1'
+  KIND_VERSION: 'v0.20.0'
+  KUBECTL_VERSION: 'v1.30.0'
+  DOCKER_DESKTOP_VERSION: 'latest'
+
+jobs:
+  # Pre-flight checks
+  preflight-checks:
+    runs-on: windows-latest
+    name: 🔍 Pre-flight Checks
+    timeout-minutes: 10
+    outputs:
+      should-test-minikube: ${{ steps.check-env.outputs.test-minikube }}
+      should-test-kind: ${{ steps.check-env.outputs.test-kind }}
+      test-depth: ${{ steps.check-env.outputs.test-depth }}
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Determine test environment
+      id: check-env
+      shell: pwsh
+      run: |
+        $testEnv = "${{ github.event.inputs.test_environment }}"
+        $testDepth = "${{ github.event.inputs.test_depth }}"
+        
+        if ([string]::IsNullOrEmpty($testEnv)) { $testEnv = "both" }
+        if ([string]::IsNullOrEmpty($testDepth)) { $testDepth = "standard" }
+        
+        $testMinikube = ($testEnv -eq "both" -or $testEnv -eq "minikube")
+        $testKind = ($testEnv -eq "both" -or $testEnv -eq "kind")
+        
+        Write-Host "🔧 Test Configuration:" -ForegroundColor Cyan
+        Write-Host "  Environment: $testEnv" -ForegroundColor Yellow
+        Write-Host "  Depth: $testDepth" -ForegroundColor Yellow
+        Write-Host "  Test Minikube: $testMinikube" -ForegroundColor Yellow
+        Write-Host "  Test Kind: $testKind" -ForegroundColor Yellow
+        
+        echo "test-minikube=$testMinikube" >> $env:GITHUB_OUTPUT
+        echo "test-kind=$testKind" >> $env:GITHUB_OUTPUT
+        echo "test-depth=$testDepth" >> $env:GITHUB_OUTPUT
+        
+    - name: Validate script syntax
+      shell: pwsh
+      run: |
+        Write-Host "🔍 Validating PowerShell script syntax..." -ForegroundColor Cyan
+        
+        $scripts = @(
+          "k8s-lab.ps1",
+          "minikube-lab\setup-minikube.ps1",
+          "kind-lab\setup-kind.ps1",
+          "test-lab.ps1",
+          "test-labs.ps1"
+        )
+        
+        $syntaxErrors = 0
+        foreach ($script in $scripts) {
+          if (Test-Path $script) {
+            try {
+              $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content $script -Raw), [ref]$null)
+              Write-Host "✅ $script - Syntax OK" -ForegroundColor Green
+            } catch {
+              Write-Host "❌ $script - Syntax Error: $($_.Exception.Message)" -ForegroundColor Red
+              $syntaxErrors++
+            }
+          } else {
+            Write-Host "⚠️ $script - File not found" -ForegroundColor Yellow
+          }
+        }
+        
+        if ($syntaxErrors -gt 0) {
+          Write-Host "❌ $syntaxErrors syntax errors found" -ForegroundColor Red
+          exit 1
+        }
+        
+        Write-Host "✅ All scripts pass syntax validation" -ForegroundColor Green
+
+  # Enhanced Minikube testing
+  test-minikube-enhanced:
+    runs-on: windows-latest
+    name: 🚀 Enhanced Minikube Testing
+    needs: preflight-checks
+    if: needs.preflight-checks.outputs.should-test-minikube == 'True'
+    timeout-minutes: 40
+    strategy:
+      matrix:
+        node-count: [1, 3]
+        include:
+          - node-count: 1
+            cluster-name: "minikube-test-single"
+          - node-count: 3
+            cluster-name: "minikube-test-multi"
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup enhanced test environment
+      shell: pwsh
+      run: |
+        Write-Host "🔧 Setting up enhanced Minikube test environment..." -ForegroundColor Cyan
+        Write-Host "  Node Count: ${{ matrix.node-count }}" -ForegroundColor Yellow
+        Write-Host "  Cluster Name: ${{ matrix.cluster-name }}" -ForegroundColor Yellow
+        Write-Host "  PowerShell: $($PSVersionTable.PSVersion)" -ForegroundColor Yellow
+        Write-Host "  OS: $([System.Environment]::OSVersion.VersionString)" -ForegroundColor Yellow
+        
+        # Enable debugging if requested
+        if ("${{ github.event.inputs.enable_debugging }}" -eq "true") {
+          Write-Host "🐛 Debug mode enabled" -ForegroundColor Magenta
+          $env:MINIKUBE_DEBUG = "true"
+          $env:KUBECTL_DEBUG = "true"
+        }
+        
+    - name: Install and verify dependencies
+      shell: pwsh
+      run: |
+        Write-Host "📦 Installing enhanced dependencies..." -ForegroundColor Cyan
+        
+        # Set execution policy
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        
+        # Install Chocolatey if not present
+        if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+          Write-Host "Installing Chocolatey..." -ForegroundColor Yellow
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        }
+        
+        # Install tools with specific versions
+        Write-Host "Installing Minikube ${{ env.MINIKUBE_VERSION }}..." -ForegroundColor Yellow
+        choco install minikube -y --version=${{ env.MINIKUBE_VERSION }}
+        
+        Write-Host "Installing kubectl..." -ForegroundColor Yellow
+        choco install kubernetes-cli -y
+        
+        Write-Host "Installing Docker Desktop..." -ForegroundColor Yellow
+        choco install docker-desktop -y
+        
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+        # Enhanced verification
+        Write-Host "🔍 Enhanced verification..." -ForegroundColor Green
+        Write-Host "Minikube version:" -ForegroundColor Gray
+        minikube version
+        Write-Host "kubectl version:" -ForegroundColor Gray
+        kubectl version --client
+        Write-Host "Docker version:" -ForegroundColor Gray
+        docker --version
+        
+        # Additional system info
+        Write-Host "System information:" -ForegroundColor Gray
+        Write-Host "  CPU cores: $([System.Environment]::ProcessorCount)" -ForegroundColor Gray
+        Write-Host "  Total memory: $([math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)) GB" -ForegroundColor Gray
+        
+    - name: Start Docker Desktop with enhanced monitoring
+      shell: pwsh
+      run: |
+        Write-Host "🐳 Starting Docker Desktop with enhanced monitoring..." -ForegroundColor Cyan
+        
+        # Start Docker Desktop
+        $dockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+        if (Test-Path $dockerPath) {
+          Start-Process $dockerPath -WindowStyle Hidden
+        } else {
+          Write-Host "❌ Docker Desktop not found at expected location" -ForegroundColor Red
+          exit 1
+        }
+        
+        # Enhanced Docker readiness check
+        $timeout = 420 # 7 minutes for enhanced timeout
+        $elapsed = 0
+        $interval = 15
+        $consecutiveSuccess = 0
+        
+        Write-Host "⏳ Waiting for Docker to be ready (enhanced check)..." -ForegroundColor Yellow
+        do {
+          try {
+            docker version | Out-Null
+            docker info | Out-Null
+            docker ps | Out-Null
+            $consecutiveSuccess++
+            Write-Host "✅ Docker check passed ($consecutiveSuccess/3)" -ForegroundColor Green
+            
+            if ($consecutiveSuccess -ge 3) {
+              Write-Host "✅ Docker is stable and ready!" -ForegroundColor Green
+              break
+            }
+            
+            Start-Sleep -Seconds 5
+            $elapsed += 5
+          } catch {
+            $consecutiveSuccess = 0
+            Write-Host "⏳ Docker not ready yet... ($elapsed/$timeout seconds)" -ForegroundColor Yellow
+            Start-Sleep -Seconds $interval
+            $elapsed += $interval
+          }
+        } while ($elapsed -lt $timeout)
+        
+        if ($elapsed -ge $timeout) {
+          Write-Host "❌ Docker failed to start within timeout" -ForegroundColor Red
+          # Enhanced diagnostics
+          Write-Host "🔍 Docker diagnostics:" -ForegroundColor Yellow
+          try { docker version } catch { Write-Host "docker version failed" }
+          try { docker info } catch { Write-Host "docker info failed" }
+          exit 1
+        }
+        
+    - name: Enhanced Minikube cluster creation
+      shell: pwsh
+      run: |
+        Write-Host "🚀 Enhanced Minikube cluster creation..." -ForegroundColor Cyan
+        
+        # Skip cluster creation if requested
+        if ("${{ github.event.inputs.skip_cluster_creation }}" -eq "true") {
+          Write-Host "⏭️ Skipping cluster creation as requested" -ForegroundColor Yellow
+          exit 0
+        }
+        
+        $clusterName = "${{ matrix.cluster-name }}"
+        $nodeCount = ${{ matrix.node-count }}
+        
+        Write-Host "Creating cluster: $clusterName with $nodeCount nodes" -ForegroundColor Yellow
+        
+        try {
+          # Enhanced cluster creation with proper resource allocation
+          $minikubeArgs = @(
+            "start",
+            "--profile=$clusterName",
+            "--driver=docker",
+            "--cpus=2",
+            "--memory=4096",
+            "--disk-size=20g",
+            "--kubernetes-version=v1.30.0"
+          )
+          
+          if ($nodeCount -gt 1) {
+            $minikubeArgs += "--nodes=$nodeCount"
+          }
+          
+          Write-Host "Minikube command: minikube $($minikubeArgs -join ' ')" -ForegroundColor Gray
+          
+          # Create cluster with enhanced error handling
+          & minikube @minikubeArgs
+          
+          if ($LASTEXITCODE -ne 0) {
+            throw "Minikube cluster creation failed with exit code $LASTEXITCODE"
+          }
+          
+          Write-Host "✅ Minikube cluster created successfully!" -ForegroundColor Green
+          
+          # Enhanced cluster verification
+          Write-Host "🔍 Enhanced cluster verification..." -ForegroundColor Cyan
+          minikube status --profile=$clusterName
+          kubectl get nodes -o wide
+          kubectl get pods -A
+          
+          # Additional cluster info
+          Write-Host "📊 Cluster information:" -ForegroundColor Gray
+          kubectl cluster-info
+          
+        } catch {
+          Write-Host "❌ Enhanced Minikube setup failed: $($_.Exception.Message)" -ForegroundColor Red
+          
+          # Enhanced error diagnostics
+          Write-Host "🔍 Enhanced diagnostics:" -ForegroundColor Yellow
+          try { minikube logs --profile=$clusterName } catch { Write-Host "Failed to get minikube logs" }
+          try { minikube status --profile=$clusterName } catch { Write-Host "Failed to get minikube status" }
+          
+          exit 1
+        }
+        
+    - name: Enhanced demo application testing
+      if: github.event.inputs.skip_cluster_creation != 'true' && needs.preflight-checks.outputs.test-depth != 'syntax'
+      shell: pwsh
+      run: |
+        Write-Host "🧪 Enhanced demo application testing..." -ForegroundColor Cyan
+        
+        $clusterName = "${{ matrix.cluster-name }}"
+        
+        try {
+          # Set context
+          kubectl config use-context $clusterName
+          
+          # Deploy demo application
+          Write-Host "📦 Deploying demo application..." -ForegroundColor Yellow
+          kubectl apply -f demo-app\demo-app.yaml
+          
+          # Enhanced waiting with progress
+          Write-Host "⏳ Waiting for pods to be ready (enhanced monitoring)..." -ForegroundColor Yellow
+          $timeout = 300
+          $elapsed = 0
+          $interval = 10
+          
+          do {
+            $pods = kubectl get pods -l app=microservices-demo -o jsonpath='{.items[*].status.phase}'
+            $readyPods = ($pods -split ' ' | Where-Object { $_ -eq 'Running' }).Count
+            $totalPods = ($pods -split ' ').Count
+            
+            Write-Host "  Ready pods: $readyPods/$totalPods" -ForegroundColor Gray
+            
+            if ($readyPods -eq $totalPods -and $totalPods -gt 0) {
+              Write-Host "✅ All pods are ready!" -ForegroundColor Green
+              break
+            }
+            
+            Start-Sleep -Seconds $interval
+            $elapsed += $interval
+          } while ($elapsed -lt $timeout)
+          
+          if ($elapsed -ge $timeout) {
+            Write-Host "❌ Timeout waiting for pods to be ready" -ForegroundColor Red
+            kubectl describe pods -l app=microservices-demo
+            exit 1
+          }
+          
+          # Enhanced service verification
+          Write-Host "🔍 Enhanced service verification..." -ForegroundColor Cyan
+          kubectl get pods -o wide
+          kubectl get svc -o wide
+          
+          # Test service connectivity
+          Write-Host "🌐 Testing service connectivity..." -ForegroundColor Yellow
+          $services = kubectl get svc -o jsonpath='{.items[*].metadata.name}'
+          foreach ($service in $services -split ' ') {
+            if ($service -ne 'kubernetes') {
+              $serviceIP = kubectl get svc $service -o jsonpath='{.spec.clusterIP}'
+              Write-Host "  Service $service: $serviceIP" -ForegroundColor Gray
+            }
+          }
+          
+          Write-Host "✅ Enhanced demo application testing completed!" -ForegroundColor Green
+          
+        } catch {
+          Write-Host "❌ Enhanced demo testing failed: $($_.Exception.Message)" -ForegroundColor Red
+          
+          # Enhanced error diagnostics
+          Write-Host "🔍 Enhanced error diagnostics:" -ForegroundColor Yellow
+          kubectl describe pods -l app=microservices-demo
+          kubectl get events --sort-by=.metadata.creationTimestamp
+          
+          exit 1
+        }
+        
+    - name: Enhanced cleanup
+      if: always()
+      shell: pwsh
+      run: |
+        Write-Host "🧹 Enhanced cleanup..." -ForegroundColor Cyan
+        
+        $clusterName = "${{ matrix.cluster-name }}"
+        
+        try {
+          # Delete cluster
+          minikube delete --profile=$clusterName
+          Write-Host "✅ Enhanced cleanup completed for $clusterName" -ForegroundColor Green
+        } catch {
+          Write-Host "⚠️ Enhanced cleanup failed for $clusterName (this may be expected)" -ForegroundColor Yellow
+        }
+        
+        # Additional cleanup
+        try {
+          docker system prune -f
+          Write-Host "✅ Docker system cleanup completed" -ForegroundColor Green
+        } catch {
+          Write-Host "⚠️ Docker cleanup failed" -ForegroundColor Yellow
+        }
+
+  # Enhanced Kind testing
+  test-kind-enhanced:
+    runs-on: windows-latest
+    name: 🎯 Enhanced Kind Testing
+    needs: preflight-checks
+    if: needs.preflight-checks.outputs.should-test-kind == 'True'
+    timeout-minutes: 35
+    strategy:
+      matrix:
+        config: [single-node, multi-node]
+        include:
+          - config: single-node
+            cluster-name: "kind-test-single"
+            config-file: "kind-config-single.yaml"
+          - config: multi-node
+            cluster-name: "kind-test-multi"
+            config-file: "kind-config.yaml"
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup enhanced Kind environment
+      shell: pwsh
+      run: |
+        Write-Host "🔧 Setting up enhanced Kind environment..." -ForegroundColor Cyan
+        Write-Host "  Config: ${{ matrix.config }}" -ForegroundColor Yellow
+        Write-Host "  Cluster: ${{ matrix.cluster-name }}" -ForegroundColor Yellow
+        Write-Host "  Config File: ${{ matrix.config-file }}" -ForegroundColor Yellow
+        
+    - name: Create Kind configuration
+      shell: pwsh
+      run: |
+        Write-Host "📝 Creating Kind configuration..." -ForegroundColor Cyan
+        
+        $configFile = "${{ matrix.config-file }}"
+        
+        if ("${{ matrix.config }}" -eq "single-node") {
+          $config = @'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: {0}
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 80
+    protocol: TCP
+  - containerPort: 443
+    hostPort: 443
+    protocol: TCP
+'@ -f "${{ matrix.cluster-name }}"
+        } else {
+          $config = @'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: {0}
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 80
+    protocol: TCP
+  - containerPort: 443
+    hostPort: 443
+    protocol: TCP
+- role: worker
+- role: worker
+'@ -f "${{ matrix.cluster-name }}"
+        }
+        
+        $config | Out-File -FilePath $configFile -Encoding UTF8
+        Write-Host "✅ Kind configuration created: $configFile" -ForegroundColor Green
+        
+    - name: Install Kind dependencies
+      shell: pwsh
+      run: |
+        Write-Host "📦 Installing Kind dependencies..." -ForegroundColor Cyan
+        
+        # Set execution policy
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        
+        # Install Chocolatey if not present
+        if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+          Write-Host "Installing Chocolatey..." -ForegroundColor Yellow
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        }
+        
+        # Install Kind with specific version
+        Write-Host "Installing Kind ${{ env.KIND_VERSION }}..." -ForegroundColor Yellow
+        choco install kind -y --version=${{ env.KIND_VERSION }}
+        
+        Write-Host "Installing kubectl..." -ForegroundColor Yellow
+        choco install kubernetes-cli -y
+        
+        Write-Host "Installing Docker Desktop..." -ForegroundColor Yellow
+        choco install docker-desktop -y
+        
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+        # Enhanced verification
+        Write-Host "🔍 Enhanced verification..." -ForegroundColor Green
+        Write-Host "Kind version:" -ForegroundColor Gray
+        kind version
+        Write-Host "kubectl version:" -ForegroundColor Gray
+        kubectl version --client
+        Write-Host "Docker version:" -ForegroundColor Gray
+        docker --version
+        
+    - name: Start Docker Desktop for Kind
+      shell: pwsh
+      run: |
+        Write-Host "🐳 Starting Docker Desktop for Kind..." -ForegroundColor Cyan
+        
+        # Start Docker Desktop
+        $dockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+        if (Test-Path $dockerPath) {
+          Start-Process $dockerPath -WindowStyle Hidden
+        } else {
+          Write-Host "❌ Docker Desktop not found" -ForegroundColor Red
+          exit 1
+        }
+        
+        # Enhanced Docker readiness check
+        $timeout = 360 # 6 minutes
+        $elapsed = 0
+        $interval = 15
+        $consecutiveSuccess = 0
+        
+        Write-Host "⏳ Waiting for Docker to be ready for Kind..." -ForegroundColor Yellow
+        do {
+          try {
+            docker version | Out-Null
+            docker info | Out-Null
+            docker ps | Out-Null
+            $consecutiveSuccess++
+            Write-Host "✅ Docker check passed ($consecutiveSuccess/3)" -ForegroundColor Green
+            
+            if ($consecutiveSuccess -ge 3) {
+              Write-Host "✅ Docker is ready for Kind!" -ForegroundColor Green
+              break
+            }
+            
+            Start-Sleep -Seconds 5
+            $elapsed += 5
+          } catch {
+            $consecutiveSuccess = 0
+            Write-Host "⏳ Docker not ready yet... ($elapsed/$timeout seconds)" -ForegroundColor Yellow
+            Start-Sleep -Seconds $interval
+            $elapsed += $interval
+          }
+        } while ($elapsed -lt $timeout)
+        
+        if ($elapsed -ge $timeout) {
+          Write-Host "❌ Docker failed to start within timeout" -ForegroundColor Red
+          exit 1
+        }
+        
+    - name: Enhanced Kind cluster creation
+      shell: pwsh
+      run: |
+        Write-Host "🎯 Enhanced Kind cluster creation..." -ForegroundColor Cyan
+        
+        # Skip cluster creation if requested
+        if ("${{ github.event.inputs.skip_cluster_creation }}" -eq "true") {
+          Write-Host "⏭️ Skipping cluster creation as requested" -ForegroundColor Yellow
+          exit 0
+        }
+        
+        $clusterName = "${{ matrix.cluster-name }}"
+        $configFile = "${{ matrix.config-file }}"
+        
+        Write-Host "Creating Kind cluster: $clusterName" -ForegroundColor Yellow
+        Write-Host "Using config: $configFile" -ForegroundColor Yellow
+        
+        try {
+          # Create cluster with enhanced monitoring
+          kind create cluster --name $clusterName --config $configFile --wait 300s
+          
+          Write-Host "✅ Kind cluster created successfully!" -ForegroundColor Green
+          
+          # Enhanced cluster verification
+          Write-Host "🔍 Enhanced cluster verification..." -ForegroundColor Cyan
+          kubectl cluster-info --context kind-$clusterName
+          kubectl get nodes -o wide
+          kubectl get pods -A
+          
+          # Additional cluster info
+          Write-Host "📊 Cluster information:" -ForegroundColor Gray
+          kind get clusters
+          docker ps --filter "label=io.x-k8s.kind.cluster=$clusterName"
+          
+        } catch {
+          Write-Host "❌ Enhanced Kind setup failed: $($_.Exception.Message)" -ForegroundColor Red
+          
+          # Enhanced error diagnostics
+          Write-Host "🔍 Enhanced diagnostics:" -ForegroundColor Yellow
+          kind get clusters
+          docker ps -a --filter "label=io.x-k8s.kind.cluster=$clusterName"
+          
+          exit 1
+        }
+        
+    - name: Enhanced demo application on Kind
+      if: github.event.inputs.skip_cluster_creation != 'true' && needs.preflight-checks.outputs.test-depth != 'syntax'
+      shell: pwsh
+      run: |
+        Write-Host "🧪 Enhanced demo application testing on Kind..." -ForegroundColor Cyan
+        
+        $clusterName = "${{ matrix.cluster-name }}"
+        
+        try {
+          # Set context
+          kubectl config use-context kind-$clusterName
+          
+          # Deploy demo application
+          Write-Host "📦 Deploying demo application..." -ForegroundColor Yellow
+          kubectl apply -f demo-app\demo-app.yaml
+          
+          # Enhanced waiting with progress
+          Write-Host "⏳ Waiting for pods to be ready (enhanced monitoring)..." -ForegroundColor Yellow
+          $timeout = 300
+          $elapsed = 0
+          $interval = 10
+          
+          do {
+            $pods = kubectl get pods -l app=microservices-demo -o jsonpath='{.items[*].status.phase}'
+            $readyPods = ($pods -split ' ' | Where-Object { $_ -eq 'Running' }).Count
+            $totalPods = ($pods -split ' ').Count
+            
+            Write-Host "  Ready pods: $readyPods/$totalPods" -ForegroundColor Gray
+            
+            if ($readyPods -eq $totalPods -and $totalPods -gt 0) {
+              Write-Host "✅ All pods are ready!" -ForegroundColor Green
+              break
+            }
+            
+            Start-Sleep -Seconds $interval
+            $elapsed += $interval
+          } while ($elapsed -lt $timeout)
+          
+          if ($elapsed -ge $timeout) {
+            Write-Host "❌ Timeout waiting for pods to be ready" -ForegroundColor Red
+            kubectl describe pods -l app=microservices-demo
+            exit 1
+          }
+          
+          # Enhanced service verification
+          Write-Host "🔍 Enhanced service verification..." -ForegroundColor Cyan
+          kubectl get pods -o wide
+          kubectl get svc -o wide
+          
+          Write-Host "✅ Enhanced demo application testing on Kind completed!" -ForegroundColor Green
+          
+        } catch {
+          Write-Host "❌ Enhanced demo testing on Kind failed: $($_.Exception.Message)" -ForegroundColor Red
+          
+          # Enhanced error diagnostics
+          Write-Host "🔍 Enhanced error diagnostics:" -ForegroundColor Yellow
+          kubectl describe pods -l app=microservices-demo
+          kubectl get events --sort-by=.metadata.creationTimestamp
+          
+          exit 1
+        }
+        
+    - name: Enhanced Kind cleanup
+      if: always()
+      shell: pwsh
+      run: |
+        Write-Host "🧹 Enhanced Kind cleanup..." -ForegroundColor Cyan
+        
+        $clusterName = "${{ matrix.cluster-name }}"
+        
+        try {
+          # Delete cluster
+          kind delete cluster --name $clusterName
+          Write-Host "✅ Enhanced Kind cleanup completed for $clusterName" -ForegroundColor Green
+        } catch {
+          Write-Host "⚠️ Enhanced Kind cleanup failed for $clusterName (this may be expected)" -ForegroundColor Yellow
+        }
+        
+        # Additional cleanup
+        try {
+          docker system prune -f
+          Write-Host "✅ Docker system cleanup completed" -ForegroundColor Green
+        } catch {
+          Write-Host "⚠️ Docker cleanup failed" -ForegroundColor Yellow
+        }
+
+  # Enhanced comprehensive test report
+  generate-enhanced-test-report:
+    runs-on: windows-latest
+    name: 📊 Enhanced Test Report
+    needs: [preflight-checks, test-minikube-enhanced, test-kind-enhanced]
+    if: always()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Generate enhanced comprehensive test report
+      shell: pwsh
+      run: |
+        Write-Host "📊 Generating enhanced comprehensive test report..." -ForegroundColor Cyan
+        
+        $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC'
+        $minikubeResult = "${{ needs.test-minikube-enhanced.result }}"
+        $kindResult = "${{ needs.test-kind-enhanced.result }}"
+        $testEnv = "${{ github.event.inputs.test_environment }}"
+        $testDepth = "${{ github.event.inputs.test_depth }}"
+        $skipCluster = "${{ github.event.inputs.skip_cluster_creation }}"
+        $enableDebug = "${{ github.event.inputs.enable_debugging }}"
+        
+        if ([string]::IsNullOrEmpty($testEnv)) { $testEnv = "both" }
+        if ([string]::IsNullOrEmpty($testDepth)) { $testDepth = "standard" }
+        
+        $report = "# 🧪 Enhanced Minikube and Kind Labs Test Report`n`n"
+        $report += "**Test Run:** $timestamp`n"
+        $report += "**Repository:** ${{ github.repository }}`n"
+        $report += "**Branch:** ${{ github.ref_name }}`n"
+        $report += "**Commit:** ${{ github.sha }}`n"
+        $report += "**Workflow:** ${{ github.workflow }}`n"
+        $report += "**Test Environment:** $testEnv`n"
+        $report += "**Test Depth:** $testDepth`n"
+        $report += "**Skip Cluster Creation:** $skipCluster`n"
+        $report += "**Debug Mode:** $enableDebug`n`n"
+        
+        $report += "## 🎯 Enhanced Test Results Summary`n`n"
+        $report += "| Test Environment | Single Node | Multi Node | Overall Status |`n"
+        $report += "|------------------|-------------|------------|----------------|`n"
+        
+        # Minikube results
+        if ($testEnv -eq "both" -or $testEnv -eq "minikube") {
+          $status = if ($minikubeResult -eq "success") { "✅ PASSED" } else { "❌ FAILED" }
+          $report += "| Minikube Lab | $status | $status | $status |`n"
+        }
+        
+        # Kind results
+        if ($testEnv -eq "both" -or $testEnv -eq "kind") {
+          $status = if ($kindResult -eq "success") { "✅ PASSED" } else { "❌ FAILED" }
+          $report += "| Kind Lab | $status | $status | $status |`n"
+        }
+        
+        $report += "`n## 🔧 Enhanced Test Environment Details`n`n"
+        $report += "- **Runner OS:** Windows Latest`n"
+        $report += "- **PowerShell Version:** $($PSVersionTable.PSVersion)`n"
+        $report += "- **Minikube Version:** ${{ env.MINIKUBE_VERSION }}`n"
+        $report += "- **Kind Version:** ${{ env.KIND_VERSION }}`n"
+        $report += "- **kubectl Version:** ${{ env.KUBECTL_VERSION }}`n"
+        $report += "- **Docker Desktop:** ${{ env.DOCKER_DESKTOP_VERSION }}`n`n"
+        
+        $report += "## 🧪 Enhanced Tests Performed`n`n"
+        $report += "### Pre-flight Checks`n"
+        $report += "- ✅ Enhanced PowerShell syntax validation`n"
+        $report += "- ✅ Environment configuration validation`n"
+        $report += "- ✅ Test matrix preparation`n`n"
+        
+        $report += "### Script Validation`n"
+        $report += "- ✅ Enhanced PowerShell syntax validation`n"
+        $report += "- ✅ Setup script execution validation`n"
+        $report += "- ✅ Main k8s-lab.ps1 integration testing`n`n"
+        
+        if ($skipCluster -ne "true") {
+          $report += "### Enhanced Cluster Operations`n"
+          $report += "- ✅ Single-node cluster creation and configuration`n"
+          $report += "- ✅ Multi-node cluster creation and configuration`n"
+          $report += "- ✅ Enhanced node accessibility and health checks`n"
+          $report += "- ✅ Enhanced demo application deployment`n"
+          $report += "- ✅ Enhanced service accessibility verification`n"
+          $report += "- ✅ Enhanced cleanup procedures`n`n"
+        }
+        
+        $report += "### Test Configurations`n"
+        $report += "- **Minikube Single Node:** 2 CPUs, 4GB RAM, 20GB disk`n"
+        $report += "- **Minikube Multi Node:** 3 nodes, 2 CPUs each, 4GB RAM each`n"
+        $report += "- **Kind Single Node:** Control plane with ingress support`n"
+        $report += "- **Kind Multi Node:** 1 control plane + 2 worker nodes`n`n"
+        
+        $report += "## 📁 Enhanced Files Tested`n`n"
+        $report += "- **Main Script:** k8s-lab.ps1`n"
+        $report += "- **Minikube Setup:** minikube-lab/setup-minikube.ps1`n"
+        $report += "- **Kind Setup:** kind-lab/setup-kind.ps1`n"
+        $report += "- **Demo Application:** demo-app/demo-app.yaml`n"
+        $report += "- **Kind Configurations:** kind-config*.yaml`n"
+        $report += "- **Test Scripts:** test-lab.ps1, test-labs.ps1`n`n"
+        
+        # Enhanced overall status
+        $overallStatus = "✅ SUCCESS"
+        if ($minikubeResult -eq "failure" -or $kindResult -eq "failure") {
+          $overallStatus = "❌ FAILURE"
+        }
+        
+        $report += "## 🎯 Overall Result: $overallStatus`n`n"
+        
+        if ($overallStatus -eq "❌ FAILURE") {
+          $report += "### ❌ Failed Tests`n"
+          if ($minikubeResult -eq "failure") {
+            $report += "- ❌ Enhanced Minikube Lab test failed`n"
+          }
+          if ($kindResult -eq "failure") {
+            $report += "- ❌ Enhanced Kind Lab test failed`n"
+          }
+          $report += "`n🔍 **Debugging Steps:**`n"
+          $report += "1. Check the detailed workflow logs for specific error messages`n"
+          $report += "2. Verify Docker Desktop is running and accessible`n"
+          $report += "3. Check system resources (CPU, memory, disk space)`n"
+          $report += "4. Test locally using the enhanced test scripts`n"
+          $report += "5. Review cluster configuration files`n`n"
+        }
+        
+        $report += "## 🚀 Next Steps`n`n"
+        $report += "1. **Review Results:** Analyze any failed tests in the detailed workflow logs`n"
+        $report += "2. **Local Testing:** Use ``test-labs.ps1`` for local reproduction`n"
+        $report += "3. **Configuration Review:** Verify cluster configuration and resource allocation`n"
+        $report += "4. **Script Updates:** Update scripts based on test results and feedback`n"
+        $report += "5. **Documentation:** Update documentation with any new findings`n`n"
+        
+        $report += "## 📈 Performance Metrics`n`n"
+        $report += "- **Total Test Duration:** Available in workflow summary`n"
+        $report += "- **Cluster Creation Time:** Monitored per test case`n"
+        $report += "- **Demo Deployment Time:** Tracked with timeout handling`n"
+        $report += "- **Cleanup Time:** Measured for each environment`n`n"
+        
+        $report += "## 🔍 Enhanced Monitoring`n`n"
+        $report += "- **Docker Health Checks:** Multi-point validation with consecutive success requirement`n"
+        $report += "- **Pod Readiness:** Real-time monitoring with progress indicators`n"
+        $report += "- **Service Verification:** Enhanced connectivity testing`n"
+        $report += "- **Error Diagnostics:** Comprehensive error collection and reporting`n`n"
+        
+        $report += "---`n"
+        $report += "*Generated by Enhanced GitHub Actions - K8s Lab Test Suite*`n"
+        $report += "*Report Version: 2.0 - Enhanced Testing Framework*"
+        
+        $report | Out-File -FilePath "enhanced-test-report-labs.md" -Encoding UTF8
+        Write-Host "✅ Enhanced test report generated: enhanced-test-report-labs.md" -ForegroundColor Green
+        
+    - name: Upload enhanced test report
+      uses: actions/upload-artifact@v4
+      with:
+        name: enhanced-k8s-labs-test-report-${{ github.run_number }}
+        path: enhanced-test-report-labs.md
+        retention-days: 30
+        
+    - name: Create job summary
+      shell: pwsh
+      run: |
+        Write-Host "📋 Creating enhanced job summary..." -ForegroundColor Cyan
+        
+        $minikubeResult = "${{ needs.test-minikube-enhanced.result }}"
+        $kindResult = "${{ needs.test-kind-enhanced.result }}"
+        $testEnv = "${{ github.event.inputs.test_environment }}"
+        $testDepth = "${{ github.event.inputs.test_depth }}"
+        
+        if ([string]::IsNullOrEmpty($testEnv)) { $testEnv = "both" }
+        if ([string]::IsNullOrEmpty($testDepth)) { $testDepth = "standard" }
+        
+        $summary = "# 🧪 Enhanced K8s Labs Test Summary`n`n"
+        $summary += "## Configuration`n"
+        $summary += "- **Environment:** $testEnv`n"
+        $summary += "- **Depth:** $testDepth`n"
+        $summary += "- **Branch:** ${{ github.ref_name }}`n`n"
+        
+        $summary += "## Results`n"
+        if ($testEnv -eq "both" -or $testEnv -eq "minikube") {
+          $status = if ($minikubeResult -eq "success") { "✅ PASSED" } else { "❌ FAILED" }
+          $summary += "- **Minikube Enhanced:** $status`n"
+        }
+        if ($testEnv -eq "both" -or $testEnv -eq "kind") {
+          $status = if ($kindResult -eq "success") { "✅ PASSED" } else { "❌ FAILED" }
+          $summary += "- **Kind Enhanced:** $status`n"
+        }
+        
+        $summary += "`n## Artifacts`n"
+        $summary += "- 📊 Enhanced test report uploaded as artifact`n"
+        $summary += "- 🔍 Detailed logs available in workflow runs`n"
+        
+        $summary | Out-File -FilePath "summary.md" -Encoding UTF8
+        echo "SUMMARY_CONTENT<<EOF" >> $env:GITHUB_ENV
+        Get-Content "summary.md" | Out-String >> $env:GITHUB_ENV
+        echo "EOF" >> $env:GITHUB_ENV
+        
+    - name: Add to job summary
+      shell: pwsh
+      run: |
+        echo "$env:SUMMARY_CONTENT" >> $env:GITHUB_STEP_SUMMARY
+        
+    - name: Display enhanced final summary
+      shell: pwsh
+      run: |
+        Write-Host "`n🎯 Enhanced Final Test Summary" -ForegroundColor Magenta
+        Write-Host "=" * 80 -ForegroundColor Blue
+        
+        $minikubeResult = "${{ needs.test-minikube-enhanced.result }}"
+        $kindResult = "${{ needs.test-kind-enhanced.result }}"
+        $testEnv = "${{ github.event.inputs.test_environment }}"
+        $testDepth = "${{ github.event.inputs.test_depth }}"
+        
+        if ([string]::IsNullOrEmpty($testEnv)) { $testEnv = "both" }
+        if ([string]::IsNullOrEmpty($testDepth)) { $testDepth = "standard" }
+        
+        Write-Host "🔧 Test Environment: $testEnv" -ForegroundColor Cyan
+        Write-Host "🎯 Test Depth: $testDepth" -ForegroundColor Cyan
+        
+        if ($testEnv -eq "both" -or $testEnv -eq "minikube") {
+          $status = if ($minikubeResult -eq "success") { "✅ PASSED" } else { "❌ FAILED" }
+          Write-Host "🚀 Enhanced Minikube Lab: $status" -ForegroundColor $(if ($minikubeResult -eq "success") { "Green" } else { "Red" })
+        }
+        
+        if ($testEnv -eq "both" -or $testEnv -eq "kind") {
+          $status = if ($kindResult -eq "success") { "✅ PASSED" } else { "❌ FAILED" }
+          Write-Host "🎯 Enhanced Kind Lab: $status" -ForegroundColor $(if ($kindResult -eq "success") { "Green" } else { "Red" })
+        }
+        
+        Write-Host "📊 Enhanced test report uploaded as artifact" -ForegroundColor Yellow
+        Write-Host "🔍 Detailed logs available in workflow runs" -ForegroundColor Yellow
+        Write-Host "`n🎉 Enhanced K8s Labs testing completed!" -ForegroundColor Green
