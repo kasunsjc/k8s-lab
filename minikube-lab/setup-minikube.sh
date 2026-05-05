@@ -91,7 +91,32 @@ install_dependencies() {
 # Install dependencies
 install_dependencies
 
-# 🔍 Check if a cluster with this profile already exists
+# � Function to offer optional Prometheus + Grafana monitoring deployment
+offer_monitoring() {
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📊 Monitoring Stack (Prometheus + Grafana)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    read -r -p "Would you like to deploy Prometheus & Grafana to monitor the cluster? [y/N]: " DEPLOY_MONITORING
+    if [[ "${DEPLOY_MONITORING:-}" =~ ^[Yy]$ ]]; then
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        MONITORING_SCRIPT="$SCRIPT_DIR/../demo-app/monitoring-demo/deploy-monitoring.sh"
+        if [ -f "$MONITORING_SCRIPT" ]; then
+            echo "📊 Deploying monitoring stack..."
+            bash "$MONITORING_SCRIPT" minikube "$PROFILE_NAME"
+        else
+            echo "⚠️  Monitoring script not found at: $MONITORING_SCRIPT"
+            echo "💡 To deploy manually, run from the repo root:"
+            echo "   ./demo-app/monitoring-demo/deploy-monitoring.sh minikube $PROFILE_NAME"
+        fi
+    else
+        echo "⏭️  Skipping monitoring stack deployment."
+        echo "💡 To deploy later, run from the repo root:"
+        echo "   ./demo-app/monitoring-demo/deploy-monitoring.sh minikube $PROFILE_NAME"
+    fi
+}
+
+# �🔍 Check if a cluster with this profile already exists
 echo "🔍 Checking if a Minikube cluster with profile '$PROFILE_NAME' already exists..."
 if minikube profile list -o json | grep -q "\"Name\":\"$PROFILE_NAME\""; then
     echo "✅ Found existing cluster with profile '$PROFILE_NAME'!"
@@ -105,11 +130,13 @@ if minikube profile list -o json | grep -q "\"Name\":\"$PROFILE_NAME\""; then
     
     if [ "$STATUS" = "Running" ]; then
         echo "✅ Cluster is already running! No action needed."
+        offer_monitoring
         exit 0
     else
         echo "🔄 Starting existing cluster with profile '$PROFILE_NAME'..."
         minikube start -p "$PROFILE_NAME"
         echo "✅ Cluster started successfully!"
+        offer_monitoring
         exit 0
     fi
 else
@@ -187,3 +214,5 @@ echo "📊 To access the Kubernetes Dashboard, run: minikube dashboard -p $PROFI
 echo "🔍 To access the cluster with kubectl, run: kubectl get nodes"
 echo "⏸️  To stop this cluster, run: minikube stop -p $PROFILE_NAME"
 echo "🗑️  To delete this cluster, run: minikube delete -p $PROFILE_NAME"
+
+offer_monitoring
